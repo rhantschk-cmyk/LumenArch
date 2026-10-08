@@ -1,0 +1,6 @@
+# AUR packages installed through the bootstrapped Yay helper.
+yay
+typora
+spaceship-prompt
+hyprmon-bin
+clipse

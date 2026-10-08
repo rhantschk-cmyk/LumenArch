@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+config="$1"
+log=/tmp/lumen-install.log
+exec > >(tee -a "$log") 2>&1
+username=$(jq -r .username "$config")
+user_password=$(jq -r .user_password "$config")
+root_password=$(jq -r .root_password "$config")
+timezone=$(jq -r .timezone "$config")
+disk=$(jq -r .disk "$config")
+[[ "$disk" == /dev/* && "$username" =~ ^[a-z_][a-z0-9_-]*$ && -e "/usr/share/zoneinfo/$timezone" ]] || exit 2
+
+sgdisk --zap-all "$disk"
+sgdisk -n 1:0:+1G -t 1:ef00 -c 1:LUMEN_EFI "$disk"
+sgdisk -n 2:0:0 -t 2:8300 -c 2:LUMEN_ROOT "$disk"
+partprobe "$disk"; sleep 2
+if [[ "$disk" == *nvme* || "$disk" == *mmcblk* ]]; then efi="${disk}p1"; root="${disk}p2"; else efi="${disk}1"; root="${disk}2"; fi
+mkfs.fat -F32 "$efi"; mkfs.ext4 -F "$root"
+mount "$root" /mnt; mkdir -p /mnt/boot; mount "$efi" /mnt/boot
+mapfile -t packages < <(sed -E '/^($|#)/d' /opt/lumen/profiles/installer/packages.pacman /opt/lumen/profiles/desktop/packages.pacman | awk '!seen[$0]++')
+pacstrap -K -C /opt/lumen/offline/pacman.conf /mnt "${packages[@]}"
+genfstab -U /mnt >> /mnt/etc/fstab
+install -Dm644 /opt/lumen/offline/pacman.conf /mnt/etc/pacman.conf
+cp -a /opt/lumen /mnt/opt/lumen
+arch-chroot /mnt /bin/bash -s -- "$username" "$timezone" "$root_password" "$user_password" <<'CHROOT'
+set -Eeuo pipefail
+shopt -s nullglob
+user="$1"; timezone="$2"; root_password="$3"; user_password="$4"
+ln -sf "/usr/share/zoneinfo/$timezone" /etc/localtime; hwclock --systohc
+echo 'en_US.UTF-8 UTF-8' >> /etc/locale.gen; locale-gen; echo 'LANG=en_US.UTF-8' > /etc/locale.conf
+echo lumen > /etc/hostname; echo "root:$root_password" | chpasswd
+useradd -m -G wheel,docker -s /usr/bin/zsh "$user"; echo "$user:$user_password" | chpasswd
+echo '%wheel ALL=(ALL:ALL) ALL' > /etc/sudoers.d/10-wheel; chmod 440 /etc/sudoers.d/10-wheel
+while IFS= read -r package; do
+  [[ -z "$package" || "$package" == \#* ]] && continue
+  matches=(/opt/lumen/offline/repo/"$package"-*.pkg.tar.zst)
+  ((${#matches[@]})) && pacman -U --noconfirm "${matches[@]}"
+done < /opt/lumen/profiles/desktop/packages.aur
+bootctl install
+cat > /boot/loader/loader.conf <<EOF
+default lumen.conf
+timeout 3
+EOF
+cat > /boot/loader/entries/lumen.conf <<EOF
+title Lumen Arch
+linux /vmlinuz-linux
+initrd /intel-ucode.img
+initrd /amd-ucode.img
+initrd /initramfs-linux.img
+options root=PARTUUID=$(blkid -s PARTUUID -o value "$(findmnt -no SOURCE /)") rw
+EOF
+cp -a /opt/lumen/system/. /
+find /opt/lumen/home -type f -print0 | while IFS= read -r -d '' source; do
+  target="/home/$user/${source#/opt/lumen/home/}"; install -Dm644 "$source" "$target"; [[ "$source" == *.sh || "$source" == */bin/* ]] && chmod 755 "$target"; chown "$user:$user" "$target"
+done
+systemctl enable NetworkManager bluetooth sddm power-profiles-daemon docker
+CHROOT
+rm -f "$config"
+sync

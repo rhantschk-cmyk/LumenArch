@@ -1,0 +1,4 @@
+* { font-family: "JetBrainsMono Nerd Font"; font-size: 13px; }
+.control-center, .notification { background: #1e1e2e; color: #cdd6f4; border: 1px solid #585b70; border-radius: 14px; }
+.notification-content { background: transparent; padding: 10px; }
+.close-button { background: #f38ba8; color: #1e1e2e; border-radius: 10px; }

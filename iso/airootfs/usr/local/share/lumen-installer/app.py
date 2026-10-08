@@ -1,0 +1,159 @@
+#!/usr/bin/env python3
+import json
+import os
+import subprocess
+import threading
+
+import gi
+gi.require_version("Gtk", "4.0")
+from gi.repository import GLib, Gtk
+
+
+class LumenInstaller(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id="org.lumen.installer")
+        self.connect("activate", self.activate)
+
+    def disks(self):
+        rows = subprocess.check_output(
+            ["lsblk", "-dn", "-o", "PATH,SIZE,MODEL,TYPE"], text=True
+        ).splitlines()
+        return [row.strip() for row in rows if row.strip().endswith(" disk")]
+
+    def activate(self, *_):
+        window = Gtk.ApplicationWindow(application=self, title="Lumen Arch Installer")
+        window.fullscreen()
+        box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=14,
+            margin_top=40,
+            margin_bottom=40,
+            margin_start=80,
+            margin_end=80,
+        )
+        title = Gtk.Label(label="LUMEN ARCH", xalign=0)
+        title.add_css_class("title-1")
+        box.append(title)
+        box.append(Gtk.Label(
+            label="A focused, offline-first desktop — installed entirely from this USB.",
+            xalign=0,
+        ))
+
+        grid = Gtk.Grid(row_spacing=10, column_spacing=18, margin_top=16)
+        self.user = Gtk.Entry(placeholder_text="Username", hexpand=True)
+        self.userpass = Gtk.PasswordEntry(placeholder_text="User password", hexpand=True)
+        self.rootpass = Gtk.PasswordEntry(placeholder_text="Root password", hexpand=True)
+        self.timezone = Gtk.Entry(
+            placeholder_text="Timezone, e.g. Europe/Berlin",
+            text="Europe/Berlin",
+            hexpand=True,
+        )
+        self.disk = Gtk.DropDown.new_from_strings(self.disks() or ["No disk detected"])
+        fields = [
+            ("Username", self.user),
+            ("User password", self.userpass),
+            ("Root password", self.rootpass),
+            ("Timezone", self.timezone),
+            ("Target disk — WILL BE ERASED", self.disk),
+        ]
+        for row, (label, widget) in enumerate(fields):
+            grid.attach(Gtk.Label(label=label, xalign=0), 0, row, 1, 1)
+            grid.attach(widget, 1, row, 1, 1)
+        box.append(grid)
+
+        warning = Gtk.Label(
+            label="All data on the selected disk will be permanently deleted. "
+                  "Packages are installed from this USB; no target network is used.",
+            wrap=True,
+            xalign=0,
+        )
+        warning.add_css_class("error")
+        box.append(warning)
+
+        self.status = Gtk.Label(
+            label="Ready. Network is not required after this point.", xalign=0, wrap=True
+        )
+        box.append(self.status)
+        self.install_button = Gtk.Button(label="Erase disk and install Lumen", halign=Gtk.Align.START)
+        self.install_button.add_css_class("suggested-action")
+        self.install_button.connect("clicked", self.confirm)
+        box.append(self.install_button)
+
+        self.close_button = Gtk.Button(
+            label="Close installer and return to console",
+            halign=Gtk.Align.START,
+            visible=False,
+        )
+        self.close_button.connect("clicked", lambda *_: self.quit())
+        box.append(self.close_button)
+
+        self.log_buffer = Gtk.TextBuffer()
+        self.log_view = Gtk.TextView(
+            buffer=self.log_buffer, editable=False, cursor_visible=False, monospace=True, vexpand=True
+        )
+        self.log_window = Gtk.ScrolledWindow(vexpand=True, min_content_height=260, visible=False)
+        self.log_window.set_child(self.log_view)
+        box.append(self.log_window)
+        window.set_child(box)
+        window.present()
+
+    def confirm(self, *_):
+        disk = self.disk.get_selected_item().get_string()
+        if not self.user.get_text() or not self.userpass.get_text() or not self.rootpass.get_text() or not disk.startswith("/dev/"):
+            self.status.set_text("Enter username, both passwords, and select a real target disk.")
+            return
+        dialog = Gtk.AlertDialog(
+            message="Erase " + disk.split()[0] + "?",
+            detail="This permanently destroys all partitions and data on that disk.",
+            buttons=["Cancel", "Erase and install"],
+        )
+        dialog.choose(self.get_active_window(), None, self.start)
+
+    def start(self, dialog, result):
+        if dialog.choose_finish(result) != 1:
+            return
+        config = {
+            "username": self.user.get_text(),
+            "user_password": self.userpass.get_text(),
+            "root_password": self.rootpass.get_text(),
+            "timezone": self.timezone.get_text(),
+            "disk": self.disk.get_selected_item().get_string().split()[0],
+        }
+        os.makedirs("/run/lumen-installer", exist_ok=True)
+        path = "/run/lumen-installer/config.json"
+        with open(path, "w", encoding="utf-8") as file:
+            json.dump(config, file)
+        os.chmod(path, 0o600)
+        self.status.set_text("Installing Lumen. Do not power off…")
+        self.install_button.set_sensitive(False)
+        self.log_window.set_visible(True)
+        self.log_buffer.set_text("Starting offline installation…\n")
+        threading.Thread(target=self.run_install, args=(path,), daemon=True).start()
+
+    def append_log(self, line):
+        self.log_buffer.insert(self.log_buffer.get_end_iter(), line)
+        self.log_view.scroll_to_iter(self.log_buffer.get_end_iter(), 0.0, False, 0.0, 1.0)
+        return False
+
+    def finish_install(self, code):
+        if code == 0:
+            self.status.set_text("Installation complete — reboot and remove the USB.")
+        else:
+            self.status.set_text("Installation failed. The complete error is shown below.")
+            self.close_button.set_visible(True)
+        return False
+
+    def run_install(self, path):
+        process = subprocess.Popen(
+            ["/usr/local/bin/lumen-offline-install", path],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        for line in process.stdout:
+            GLib.idle_add(self.append_log, line)
+        GLib.idle_add(self.finish_install, process.wait())
+
+
+app = LumenInstaller()
+app.run(None)

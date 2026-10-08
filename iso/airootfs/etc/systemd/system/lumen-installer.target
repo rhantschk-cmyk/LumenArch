@@ -1,0 +1,5 @@
+[Unit]
+Description=Lumen graphical installer target
+Wants=graphical.target
+After=graphical.target
+AllowIsolate=yes

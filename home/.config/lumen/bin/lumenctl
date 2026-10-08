@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# A discoverable, menu-driven maintenance console. Administrative actions ask first.
+set -Eeuo pipefail
+title() { gum style --border double --border-foreground 212 --padding '1 3' --margin '1 0' '✦  LUMEN CONTROL CENTER'; }
+pause() { gum input --placeholder 'Press Enter to return…' >/dev/null; }
+update() { title; gum spin --spinner dot --title 'Updating system…' -- sudo pacman -Syu; yay -Sua; pause; }
+install_apps() {
+  title
+  selected=$(printf '%s\n' \
+    'discord  • community' 'spotify  • music' 'visual-studio-code-bin  • editor' \
+    'localsend-bin  • device sharing' 'bitwarden  • passwords' 'steam  • games' \
+    'gimp  • images' 'inkscape  • vectors' | gum choose --no-limit --height 10) || return
+  [[ -n "$selected" ]] || return
+  printf '%s\n' "$selected" | sed 's/  •.*//' | xargs -r yay -S --needed
+  pause
+}
+while true; do
+  title
+  choice=$(printf '%s\n' \
+    '󰚰  Update Lumen and packages' \
+    '󰏖  Install curated applications' \
+    '󰌌  Configure monitors (HyprMon)' \
+    '󰆼  Container dashboard (LazyDocker)' \
+    '󰋊  Clean package cache' \
+    '󰩈  System overview' \
+    '󰜺  Exit' | gum choose --height 12) || exit 0
+  case "$choice" in
+    *Update*) update ;;
+    *Install*) install_apps ;;
+    *monitors*) hyprmon ;;
+    *Container*) lazydocker ;;
+    *Clean*) sudo paccache -r; pause ;;
+    *overview*) fastfetch; echo; btop; ;;
+    *Exit*) exit 0 ;;
+  esac
+done

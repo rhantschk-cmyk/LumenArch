@@ -1,0 +1,7 @@
+.DS_Store
+*.swp
+*.bak
+result
+build/
+__pycache__/
+*.pyc

@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+choice=$(printf '%s\n' \
+  '󰀻  Applications' \
+  '󰄀  Screenshot' \
+  '󰒲  Control Center' \
+  '󰌌  Monitor setup' \
+  '󰈹  Clipboard history' \
+  '󰐥  Power menu' | fuzzel --dmenu --prompt='Lumen  ') || exit 0
+case "$choice" in
+  *Applications*) exec fuzzel --show-actions=no ;;
+  *Screenshot*) exec "$HOME/.config/lumen/bin/lumen-screenshot" ;;
+  *Control*) exec alacritty -e "$HOME/.config/lumen/bin/lumenctl" ;;
+  *Monitor*) exec alacritty -e hyprmon ;;
+  *Clipboard*) cliphist list | fuzzel --dmenu | cliphist decode | wl-copy ;;
+  *Power*) exec "$HOME/.config/lumen/bin/lumen-power" ;;
+esac

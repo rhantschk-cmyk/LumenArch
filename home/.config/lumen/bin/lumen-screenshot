@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+dir="$HOME/Pictures/Screenshots"
+mkdir -p "$dir"
+file="$dir/$(date +'%Y-%m-%d_%H-%M-%S').png"
+choice=$(printf '%s\n' '󰹑  Full screen' '󰩬  Select region' '󰍹  Active monitor' | fuzzel --dmenu --prompt='Screenshot  ') || exit 0
+case "$choice" in
+  *Full*) grim "$file" ;;
+  *Select*) slurp | grim -g - "$file" ;;
+  *Active*) grim -o "$(hyprctl monitors -j | jq -r '.[] | select(.focused).name')" "$file" ;;
+esac
+wl-copy < "$file"
+notify-send 'Screenshot saved' "Copied to clipboard\n$file" -i camera-photo

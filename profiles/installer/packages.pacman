@@ -1,0 +1,25 @@
+# Live graphical installer runtime
+cage
+gtk4
+python
+python-gobject
+jq
+gptfdisk
+dosfstools
+e2fsprogs
+arch-install-scripts
+base
+base-devel
+linux
+linux-firmware
+networkmanager
+sudo
+systemd
+systemd-ukify
+efibootmgr
+intel-ucode
+amd-ucode
+mesa
+vulkan-intel
+vulkan-radeon
+nvidia-open

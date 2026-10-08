@@ -1,0 +1,21 @@
+[Unit]
+Description=Lumen graphical offline installer
+After=systemd-user-sessions.service seatd.service
+Requires=seatd.service
+Conflicts=getty@tty1.service
+
+[Service]
+Type=simple
+PAMName=login
+TTYPath=/dev/tty1
+StandardInput=tty
+StandardOutput=journal+console
+StandardError=journal+console
+Environment=XDG_RUNTIME_DIR=/run/lumen-installer
+Environment=LIBSEAT_BACKEND=seatd
+ExecStartPre=/usr/bin/install -d -m 0700 /run/lumen-installer
+ExecStart=/usr/bin/cage -s -- /usr/bin/python /usr/local/share/lumen-installer/app.py
+Restart=on-failure
+
+[Install]
+WantedBy=graphical.target
