@@ -44,7 +44,10 @@ mount "$root" /mnt; mkdir -p /mnt/boot; mount "$efi" /mnt/boot
 package_files=(/opt/lumen/profiles/installer/packages.pacman)
 for profile in "${profiles[@]}"; do package_files+=("/opt/lumen/profiles/$profile/packages.pacman"); done
 mapfile -t packages < <(sed -E '/^($|#)/d' "${package_files[@]}" | awk '!seen[$0]++')
-pacstrap -K -C /opt/lumen/offline/pacman.conf /mnt "${packages[@]}"
+# The local ISO repository is the only source during installation.  Let
+# pacstrap seed the target with the live ISO's usable Arch keyring instead of
+# generating a new keyring in /mnt, which can fail on the live environment.
+pacstrap -C /opt/lumen/offline/pacman.conf /mnt "${packages[@]}"
 genfstab -U /mnt >> /mnt/etc/fstab
 install -Dm644 /opt/lumen/offline/target-pacman.conf /mnt/etc/pacman.conf
 [[ -f /etc/pacman.d/mirrorlist ]] && install -Dm644 /etc/pacman.d/mirrorlist /mnt/etc/pacman.d/mirrorlist
