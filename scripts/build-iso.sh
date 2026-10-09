@@ -26,6 +26,40 @@ stage_from_container_cache() {
   ln -f "$stage_repo/$(basename "$package_archive")" "$package_cache/"
 }
 
+# Arch normally retains an epoch in package archive names, while older mirrors
+# and some package tooling may omit it.  Accept both forms.  More importantly,
+# pacstrap can satisfy a package from the build container without leaving an
+# archive in either cache; fetch that exact version rather than abandoning the
+# complete offline closure.
+package_archive_matches() {
+  local directory="$1" package_name="$2" package_version="$3"
+  local version_without_epoch="${package_version#*:}"
+  PACKAGE_MATCHES=("$directory/$package_name-$package_version-"*.pkg.tar.zst)
+  if [[ "$version_without_epoch" != "$package_version" ]]; then
+    PACKAGE_MATCHES+=("$directory/$package_name-$version_without_epoch-"*.pkg.tar.zst)
+  fi
+}
+
+stage_installed_package() {
+  local package_name="$1" package_version="$2"
+  package_archive_matches "$stage_repo" "$package_name" "$package_version"
+  ((${#PACKAGE_MATCHES[@]})) && return
+
+  package_archive_matches /var/cache/pacman/pkg "$package_name" "$package_version"
+  if ((${#PACKAGE_MATCHES[@]})); then
+    stage_from_container_cache "${PACKAGE_MATCHES[0]}"
+    return
+  fi
+
+  echo "Downloading exact archive for $package_name $package_version"
+  pacman -Sw --noconfirm --config "$offline_conf" "$package_name=$package_version"
+  package_archive_matches "$stage_repo" "$package_name" "$package_version"
+  ((${#PACKAGE_MATCHES[@]})) || {
+    echo "Offline repository is missing $package_name $package_version after download" >&2
+    exit 1
+  }
+}
+
 command -v mkarchiso >/dev/null || {
   echo 'Install the archiso package first: sudo pacman -S archiso' >&2
   exit 1
@@ -110,19 +144,7 @@ pacstrap -K -C "$offline_conf" "$offline_root" "${offline_packages[@]}"
 # of truth and copy every *installed exact version* from either cache.  This
 # avoids a repository with X11 libraries but without their glibc dependency.
 while IFS=' ' read -r package_name package_version; do
-  # Pacman's installed version includes an optional epoch (for example
-  # 1:1.2.12-6), while package archive filenames deliberately omit it.
-  package_archive_version="${package_version#*:}"
-  staged_matches=("$stage_repo/$package_name-$package_archive_version-"*.pkg.tar.zst)
-  if ((${#staged_matches[@]})); then
-    continue
-  fi
-  cached_matches=("/var/cache/pacman/pkg/$package_name-$package_archive_version-"*.pkg.tar.zst)
-  if ((${#cached_matches[@]} == 0)); then
-    echo "Offline repository is missing $package_name $package_version" >&2
-    exit 1
-  fi
-  stage_from_container_cache "${cached_matches[0]}"
+  stage_installed_package "$package_name" "$package_version"
 done < <(pacman -Q --root "$offline_root")
 
 rm -rf "$offline_root"
@@ -160,17 +182,7 @@ printf '\n[lumen-build]\nSigLevel = Optional TrustAll\nServer = file://%s\n' "$s
 complete_root="$(mktemp -d)"
 pacstrap -K -C "$offline_conf" "$complete_root" "${offline_packages[@]}" "${aur_packages[@]}"
 while IFS=' ' read -r package_name package_version; do
-  package_archive_version="${package_version#*:}"
-  staged_matches=("$stage_repo/$package_name-$package_archive_version-"*.pkg.tar.zst)
-  if ((${#staged_matches[@]})); then
-    continue
-  fi
-  cached_matches=("/var/cache/pacman/pkg/$package_name-$package_archive_version-"*.pkg.tar.zst)
-  if ((${#cached_matches[@]} == 0)); then
-    echo "Offline repository is missing $package_name $package_version" >&2
-    exit 1
-  fi
-  stage_from_container_cache "${cached_matches[0]}"
+  stage_installed_package "$package_name" "$package_version"
 done < <(pacman -Q --root "$complete_root")
 rm -rf "$complete_root" "$offline_conf"
 repo-add "$stage_repo/lumen-offline.db.tar.gz" "$stage_repo"/*.pkg.tar.zst
