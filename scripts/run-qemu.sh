@@ -11,6 +11,13 @@ fi
 
 iso="$(find "$root_dir/build/iso" -maxdepth 1 -type f -name '*.iso' -printf '%T@ %p\n' | sort -n | tail -n1 | cut -d' ' -f2-)"
 [[ -n "$iso" && -f "$iso" ]] || { echo 'No ISO found in build/iso.' >&2; exit 1; }
+mapfile -t newer_inputs < <(find "$root_dir"/profiles "$root_dir"/iso "$root_dir"/offline \
+  "$root_dir"/home "$root_dir"/system "$root_dir"/scripts -type f -newer "$iso" -print)
+if ((${#newer_inputs[@]})); then
+  echo "The newest ISO is older than the current source tree: $iso" >&2
+  echo 'Build a fresh ISO before running QEMU; refusing to test a stale image.' >&2
+  exit 1
+fi
 
 vm_dir="${LUMEN_VM_DIR:-$HOME/VMs/lumen-test}"
 mkdir -p "$vm_dir"
