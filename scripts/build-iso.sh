@@ -13,6 +13,15 @@ checkpoint_root="$root_dir/build/offline-checkpoint"
 checkpoint_repo="$checkpoint_root/repo"
 checkpoint_fingerprint="$checkpoint_root/package-input.sha256"
 
+# /var/cache/pacman/pkg is a separate Docker bind mount in the container
+# wrapper.  A hard link from there into /workspace is invalid cross-device;
+# reflink keeps files copy-on-write where the filesystem supports it and falls
+# back to a regular copy otherwise.
+stage_from_container_cache() {
+  local package_archive="$1"
+  cp --reflink=auto -- "$package_archive" "$stage_repo/"
+}
+
 command -v mkarchiso >/dev/null || {
   echo 'Install the archiso package first: sudo pacman -S archiso' >&2
   exit 1
@@ -106,7 +115,7 @@ while IFS=' ' read -r package_name package_version; do
     echo "Offline repository is missing $package_name $package_version" >&2
     exit 1
   fi
-  ln -f "${cached_matches[0]}" "$stage_repo/"
+  stage_from_container_cache "${cached_matches[0]}"
 done < <(pacman -Q --root "$offline_root")
 
 rm -rf "$offline_root"
@@ -153,7 +162,7 @@ while IFS=' ' read -r package_name package_version; do
     echo "Offline repository is missing $package_name $package_version" >&2
     exit 1
   fi
-  ln -f "${cached_matches[0]}" "$stage_repo/"
+  stage_from_container_cache "${cached_matches[0]}"
 done < <(pacman -Q --root "$complete_root")
 rm -rf "$complete_root" "$offline_conf"
 repo-add "$stage_repo/lumen-offline.db.tar.gz" "$stage_repo"/*.pkg.tar.zst
