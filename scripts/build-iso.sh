@@ -137,6 +137,10 @@ if ! grep -qx '\[multilib\]' "$offline_conf"; then
 Include = /etc/pacman.d/mirrorlist
 EOF
 fi
+# pacman -Sw below may need an archive that pacstrap satisfied from the build
+# container.  Refresh this exact configuration once so its newly enabled
+# multilib repository has a local database as well.
+pacman -Sy --noconfirm --config "$offline_conf"
 pacstrap -K -C "$offline_conf" "$offline_root" "${offline_packages[@]}"
 
 # pacstrap may use the build container's normal pacman cache even when a
