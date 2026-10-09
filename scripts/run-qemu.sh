@@ -31,6 +31,9 @@ vars_template="$(find "$ovmf_dir" -type f -name 'OVMF_VARS*.fd' -print -quit)"
 
 [[ -f "$disk" ]] || qemu-img create -f qcow2 "$disk" 64G
 [[ -f "$vars" ]] || cp "$vars_template" "$vars"
+# Nix store files are read-only; OVMF persists UEFI boot entries and variables
+# in this copy, so it must always be writable by the invoking user.
+chmod u+w "$vars"
 
 echo "Booting: $iso"
 echo "Virtual disk: $disk"
