@@ -8,34 +8,65 @@ user_password=$(jq -r .user_password "$config")
 root_password=$(jq -r .root_password "$config")
 timezone=$(jq -r .timezone "$config")
 disk=$(jq -r .disk "$config")
-[[ "$disk" == /dev/* && "$username" =~ ^[a-z_][a-z0-9_-]*$ && -e "/usr/share/zoneinfo/$timezone" ]] || exit 2
+hostname=$(jq -r '.hostname // "lumen"' "$config")
+keymap=$(jq -r '.keymap // "de"' "$config")
+filesystem=$(jq -r '.filesystem // "ext4"' "$config")
+mapfile -t requested_profiles < <(jq -r '.profiles[]?' "$config")
+valid_profiles=(base desktop developer creator gaming)
+
+[[ "$disk" == /dev/* && "$username" =~ ^[a-z_][a-z0-9_-]*$ && "$hostname" =~ ^[a-zA-Z0-9][a-zA-Z0-9-]{0,62}$ && "$keymap" =~ ^[a-zA-Z0-9_-]+$ && -e "/usr/share/zoneinfo/$timezone" ]] || exit 2
+[[ "$filesystem" == ext4 || "$filesystem" == btrfs ]] || exit 2
+mapfile -t physical_disks < <(lsblk -dnro PATH,TYPE | awk '$2 == "disk" {print $1}')
+printf '%s\n' "${physical_disks[@]}" | grep -Fxq "$disk" || { echo "Refusing non-disk target: $disk" >&2; exit 2; }
+live_source=$(findmnt -nro SOURCE /run/archiso/bootmnt 2>/dev/null || true)
+if [[ "$live_source" == /dev/* ]]; then
+  live_source=$(readlink -f "$live_source")
+  live_disk=$(lsblk -ndo PKNAME "$live_source" 2>/dev/null || true)
+  [[ -n "$live_disk" ]] && live_disk="/dev/$live_disk" || live_disk="$live_source"
+  [[ "$disk" != "$live_disk" ]] || { echo "Refusing to erase the installation medium: $disk" >&2; exit 2; }
+fi
+profiles=(base desktop)
+for profile in "${requested_profiles[@]}"; do
+  [[ " ${valid_profiles[*]} " == *" $profile "* ]] || { echo "Unknown profile: $profile" >&2; exit 2; }
+  [[ " ${profiles[*]} " == *" $profile "* ]] || profiles+=("$profile")
+done
+trap 'umount -R /mnt 2>/dev/null || true' EXIT
 
 sgdisk --zap-all "$disk"
 sgdisk -n 1:0:+1G -t 1:ef00 -c 1:LUMEN_EFI "$disk"
 sgdisk -n 2:0:0 -t 2:8300 -c 2:LUMEN_ROOT "$disk"
 partprobe "$disk"; sleep 2
 if [[ "$disk" == *nvme* || "$disk" == *mmcblk* ]]; then efi="${disk}p1"; root="${disk}p2"; else efi="${disk}1"; root="${disk}2"; fi
-mkfs.fat -F32 "$efi"; mkfs.ext4 -F "$root"
+mkfs.fat -F32 "$efi"
+if [[ "$filesystem" == btrfs ]]; then mkfs.btrfs -f "$root"; else mkfs.ext4 -F "$root"; fi
 mount "$root" /mnt; mkdir -p /mnt/boot; mount "$efi" /mnt/boot
-mapfile -t packages < <(sed -E '/^($|#)/d' /opt/lumen/profiles/installer/packages.pacman /opt/lumen/profiles/desktop/packages.pacman | awk '!seen[$0]++')
+package_files=(/opt/lumen/profiles/installer/packages.pacman)
+for profile in "${profiles[@]}"; do package_files+=("/opt/lumen/profiles/$profile/packages.pacman"); done
+mapfile -t packages < <(sed -E '/^($|#)/d' "${package_files[@]}" | awk '!seen[$0]++')
 pacstrap -K -C /opt/lumen/offline/pacman.conf /mnt "${packages[@]}"
 genfstab -U /mnt >> /mnt/etc/fstab
-install -Dm644 /opt/lumen/offline/pacman.conf /mnt/etc/pacman.conf
+install -Dm644 /opt/lumen/offline/target-pacman.conf /mnt/etc/pacman.conf
+[[ -f /etc/pacman.d/mirrorlist ]] && install -Dm644 /etc/pacman.d/mirrorlist /mnt/etc/pacman.d/mirrorlist
 cp -a /opt/lumen /mnt/opt/lumen
-arch-chroot /mnt /bin/bash -s -- "$username" "$timezone" "$root_password" "$user_password" <<'CHROOT'
+arch-chroot /mnt /bin/bash -s -- "$username" "$timezone" "$root_password" "$user_password" "$hostname" "$keymap" "${profiles[@]}" <<'CHROOT'
 set -Eeuo pipefail
 shopt -s nullglob
-user="$1"; timezone="$2"; root_password="$3"; user_password="$4"
+user="$1"; timezone="$2"; root_password="$3"; user_password="$4"; hostname="$5"; keymap="$6"; shift 6
 ln -sf "/usr/share/zoneinfo/$timezone" /etc/localtime; hwclock --systohc
-echo 'en_US.UTF-8 UTF-8' >> /etc/locale.gen; locale-gen; echo 'LANG=en_US.UTF-8' > /etc/locale.conf
-echo lumen > /etc/hostname; echo "root:$root_password" | chpasswd
+echo 'en_US.UTF-8 UTF-8' >> /etc/locale.gen; locale-gen; echo 'LANG=en_US.UTF-8' > /etc/locale.conf; echo "KEYMAP=$keymap" > /etc/vconsole.conf
+echo "$hostname" > /etc/hostname; echo "root:$root_password" | chpasswd
 useradd -m -G wheel,docker -s /usr/bin/zsh "$user"; echo "$user:$user_password" | chpasswd
 echo '%wheel ALL=(ALL:ALL) ALL' > /etc/sudoers.d/10-wheel; chmod 440 /etc/sudoers.d/10-wheel
-while IFS= read -r package; do
-  [[ -z "$package" || "$package" == \#* ]] && continue
-  matches=(/opt/lumen/offline/repo/"$package"-*.pkg.tar.zst)
-  ((${#matches[@]})) && pacman -U --noconfirm "${matches[@]}"
-done < /opt/lumen/profiles/desktop/packages.aur
+for profile in "$@"; do
+  aur_file="/opt/lumen/profiles/$profile/packages.aur"
+  [[ -f "$aur_file" ]] || continue
+  while IFS= read -r package; do
+    [[ -z "$package" || "$package" == \#* ]] && continue
+    matches=(/opt/lumen/offline/repo/"$package"-*.pkg.tar.zst)
+    ((${#matches[@]})) || { echo "Offline AUR package missing: $package" >&2; exit 1; }
+    pacman -U --noconfirm "${matches[@]}"
+  done < "$aur_file"
+done
 bootctl install
 cat > /boot/loader/loader.conf <<EOF
 default lumen.conf
@@ -57,3 +88,5 @@ systemctl enable NetworkManager bluetooth sddm power-profiles-daemon docker
 CHROOT
 rm -f "$config"
 sync
+trap - EXIT
+umount -R /mnt

@@ -35,18 +35,20 @@ The old Archinstall path is obsolete. The current installer is a full-screen
 GTK application hosted in Cage on tty1:
 
 - `iso/efiboot/loader/entries/01-lumen-installer.conf` — UEFI boot entry
-- `iso/syslinux/lumen-installer.cfg` — legacy BIOS boot entry
 - `iso/airootfs/etc/systemd/system/lumen-installer.service` — launches Cage
 - `iso/airootfs/usr/local/share/lumen-installer/app.py` — form and log view
 - `iso/airootfs/usr/local/bin/lumen-offline-install` — destructive backend
 
-The wizard asks for username, user password, root password, a fuzzy-searchable
-timezone and target disk. The backend wipes that disk, makes GPT/ESP/ext4,
-uses the ISO-local Pacman repository with `pacstrap`, creates users, installs
-AUR archives, writes systemd-boot configuration, copies Lumen configuration
-and enables NetworkManager, Bluetooth, SDDM, power profiles and Docker.
+The wizard asks for username, user password, root password, timezone, hostname,
+console keyboard, filesystem and target disk. Base/Desktop are mandatory;
+Developer, Creator and Gaming are selectable and enabled by default. The
+backend rejects the live installation medium, wipes the chosen disk, makes a
+GPT/ESP layout with ext4 or Btrfs, uses the ISO-local Pacman repository with
+`pacstrap`, creates users, installs AUR archives, writes systemd-boot
+configuration, copies Lumen configuration and enables NetworkManager,
+Bluetooth, SDDM, power profiles and Docker.
 
-Current intentional limits: UEFI only, whole-disk GPT layout, ext4, no
+Current intentional limits: UEFI only, whole-disk GPT layout, no
 encryption, no dual boot. Do not describe those as supported features.
 
 ## Live graphical environment
@@ -180,7 +182,8 @@ chmod u+rw "$HOME/VMs/lumen-test/OVMF_VARS.fd"
 
 ## Key files
 
-- `profiles/desktop/packages.pacman` and `packages.aur` — application lists
+- `profiles/base/`, `desktop/`, `developer/`, `creator/`, `gaming/` — package
+  profiles; optional profiles are enabled by default in the installer
 - `profiles/installer/packages.pacman` — live installer dependencies
 - `scripts/build-iso.sh` — local package repository creation
 - `scripts/build-iso-container.sh` — NixOS/non-Arch Docker wrapper

@@ -3,8 +3,13 @@
 set -Eeuo pipefail
 
 root_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-package_file="$root_dir/profiles/desktop/packages.pacman"
-aur_file="$root_dir/profiles/desktop/packages.aur"
+profile_names=(base desktop developer creator gaming)
+package_files=()
+aur_files=()
+for profile in "${profile_names[@]}"; do
+  package_files+=("$root_dir/profiles/$profile/packages.pacman")
+  [[ -f "$root_dir/profiles/$profile/packages.aur" ]] && aur_files+=("$root_dir/profiles/$profile/packages.aur")
+done
 
 if [[ "${EUID}" -eq 0 ]]; then
   echo "Run this as your normal user; it invokes sudo only for system actions." >&2
@@ -15,7 +20,7 @@ if ! command -v pacman >/dev/null; then
   exit 1
 fi
 
-mapfile -t packages < <(sed -E '/^($|#)/d' "$package_file")
+mapfile -t packages < <(sed -E '/^($|#)/d' "${package_files[@]}" | awk '!seen[$0]++')
 printf 'Lumen will install %s official packages and enable desktop services.\n' "${#packages[@]}"
 read -r -p 'Continue? [y/N] ' answer
 [[ "$answer" =~ ^[Yy]$ ]] || { echo 'Cancelled.'; exit 0; }
@@ -44,7 +49,7 @@ if ! command -v yay >/dev/null; then
   tar -xzf "$build_dir/yay.tar.gz" -C "$build_dir"
   (cd "$build_dir/yay" && makepkg -si --needed --noconfirm)
 fi
-mapfile -t aur_packages < <(sed -E '/^($|#)/d' "$aur_file" | grep -vx 'yay' || true)
+mapfile -t aur_packages < <(sed -E '/^($|#)/d' "${aur_files[@]}" | grep -vx 'yay' | awk '!seen[$0]++' || true)
 ((${#aur_packages[@]})) && yay -S --needed --noconfirm "${aur_packages[@]}"
 
 echo 'System profile installed. Run ./scripts/install-user.sh before logging in.'

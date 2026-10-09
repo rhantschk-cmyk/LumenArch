@@ -18,7 +18,20 @@ class LumenInstaller(Gtk.Application):
         rows = subprocess.check_output(
             ["lsblk", "-dn", "-o", "PATH,SIZE,MODEL,TYPE"], text=True
         ).splitlines()
-        return [row.strip() for row in rows if row.strip().endswith(" disk")]
+        live_source = subprocess.run(
+            ["findmnt", "-nro", "SOURCE", "/run/archiso/bootmnt"],
+            text=True, capture_output=True, check=False,
+        ).stdout.strip()
+        live_disk = ""
+        if live_source.startswith("/dev/"):
+            live_source = os.path.realpath(live_source)
+            parent = subprocess.run(
+                ["lsblk", "-ndo", "PKNAME", live_source],
+                text=True, capture_output=True, check=False,
+            ).stdout.strip()
+            live_disk = f"/dev/{parent}" if parent else live_source
+        return [row.strip() for row in rows
+                if row.strip().endswith(" disk") and row.split()[0] != live_disk]
 
     def activate(self, *_):
         window = Gtk.ApplicationWindow(application=self, title="Lumen Arch Installer")
@@ -48,18 +61,34 @@ class LumenInstaller(Gtk.Application):
             text="Europe/Berlin",
             hexpand=True,
         )
-        self.disk = Gtk.DropDown.new_from_strings(self.disks() or ["No disk detected"])
+        self.hostname = Gtk.Entry(placeholder_text="Hostname", text="lumen", hexpand=True)
+        self.keymap = Gtk.Entry(placeholder_text="Console keymap", text="de", hexpand=True)
+        self.filesystem = Gtk.DropDown.new_from_strings(["ext4", "btrfs"])
+        self.disk = Gtk.DropDown.new_from_strings(self.disks() or ["No safe disk detected"])
         fields = [
             ("Username", self.user),
             ("User password", self.userpass),
             ("Root password", self.rootpass),
             ("Timezone", self.timezone),
+            ("Hostname", self.hostname),
+            ("Console keyboard", self.keymap),
+            ("Filesystem", self.filesystem),
             ("Target disk — WILL BE ERASED", self.disk),
         ]
         for row, (label, widget) in enumerate(fields):
             grid.attach(Gtk.Label(label=label, xalign=0), 0, row, 1, 1)
             grid.attach(widget, 1, row, 1, 1)
         box.append(grid)
+
+        profiles = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12, margin_top=8)
+        profiles.append(Gtk.Label(label="Included profiles", xalign=0))
+        self.profile_checks = {}
+        for profile, label in [("developer", "Developer"), ("creator", "Creator"),
+                               ("gaming", "Gaming")]:
+            check = Gtk.CheckButton(label=label, active=True)
+            self.profile_checks[profile] = check
+            profiles.append(check)
+        box.append(profiles)
 
         warning = Gtk.Label(
             label="All data on the selected disk will be permanently deleted. "
@@ -99,8 +128,9 @@ class LumenInstaller(Gtk.Application):
 
     def confirm(self, *_):
         disk = self.disk.get_selected_item().get_string()
-        if not self.user.get_text() or not self.userpass.get_text() or not self.rootpass.get_text() or not disk.startswith("/dev/"):
-            self.status.set_text("Enter username, both passwords, and select a real target disk.")
+        if (not self.user.get_text() or not self.userpass.get_text() or not self.rootpass.get_text()
+                or not self.hostname.get_text() or not self.keymap.get_text() or not disk.startswith("/dev/")):
+            self.status.set_text("Enter username, passwords, hostname, keyboard and select a safe target disk.")
             return
         dialog = Gtk.AlertDialog(
             message="Erase " + disk.split()[0] + "?",
@@ -117,6 +147,10 @@ class LumenInstaller(Gtk.Application):
             "user_password": self.userpass.get_text(),
             "root_password": self.rootpass.get_text(),
             "timezone": self.timezone.get_text(),
+            "hostname": self.hostname.get_text(),
+            "keymap": self.keymap.get_text(),
+            "filesystem": self.filesystem.get_selected_item().get_string(),
+            "profiles": [name for name, check in self.profile_checks.items() if check.get_active()],
             "disk": self.disk.get_selected_item().get_string().split()[0],
         }
         os.makedirs("/run/lumen-installer", exist_ok=True)

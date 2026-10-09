@@ -1,8 +1,9 @@
 # Architecture
 
 Lumen is an Arch profile, not a fork of Arch. Pacman remains the package
-manager; all Lumen-owned state is either in this repository or copied into the
-desktop user's home directory by `scripts/install-user.sh`.
+manager and, after installation, uses the normal signed Arch repositories.
+The ISO-local repository exists only to make the initial installation fully
+offline.
 
 ```text
 SDDM → Hyprland → dbus + portals + polkit
@@ -21,10 +22,14 @@ components competing for the same desktop responsibility.
 
 ## Boundaries
 
-- `profiles/desktop/`: package declaration only
+- `profiles/base/`: kernel, firmware and required system services
+- `profiles/desktop/`: base graphical desktop
+- `profiles/developer/`, `creator/`, `gaming/`: optional package profiles;
+  all are selected by default and can be deselected in the installer
 - `home/`: files copied to `$HOME`; safe to modify after installation
 - `scripts/install-system.sh`: package/service changes requiring sudo
 - `scripts/install-user.sh`: user configuration and timestamped backups
 
-The project deliberately does not prescribe a bootloader, disk layout, kernel,
-or encryption scheme. Those are installation-specific decisions.
+The current graphical installer deliberately supports UEFI whole-disk installs
+only. It offers ext4 or Btrfs, hostname, console keyboard layout, timezone and
+optional package profiles. Encryption and dual boot are not implemented yet.

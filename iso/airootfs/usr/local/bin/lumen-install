@@ -1,15 +1,5 @@
 #!/usr/bin/env bash
-# Lumen's guided, non-destructive Archinstall entrypoint.
+# Start the supported graphical installer.  The former Archinstall fallback
+# used a different, network-dependent installation model and was misleading.
 set -Eeuo pipefail
-banner() { gum style --border double --border-foreground 212 --padding '2 6' --margin '1' '✦  L U M E N   A R C H  ✦' 'An elegant, focused Hyprland desktop'; }
-banner
-while true; do
-  choice=$(printf '%s\n' '󰣇  Install Arch with guided Archinstall' '󰖩  Check network' '󰋊  Inspect disks' '󰏖  What happens after installation?' '󰜉  Reboot' | gum choose --height 10) || exit 0
-  case "$choice" in
-    *Install*) exec archinstall ;;
-    *network*) ip -brief address | gum style --border normal --padding '1 2'; gum input --placeholder 'Enter to continue' >/dev/null ;;
-    *disks*) lsblk -o NAME,SIZE,TYPE,MODEL | gum style --border normal --padding '1 2'; gum input --placeholder 'Enter to continue' >/dev/null ;;
-    *happens*) gum style --border rounded --padding '1 2' 'Archinstall handles partitions, encryption and bootloader.' 'After first boot run the Lumen profile scripts to install the desktop.'; gum input --placeholder 'Enter to continue' >/dev/null ;;
-    *Reboot*) systemctl reboot ;;
-  esac
-done
+exec systemctl restart lumen-installer.service

@@ -1,0 +1,26 @@
+# Developer workstation
+git
+git-delta
+neovim
+tmux
+lazygit
+lazydocker
+docker
+docker-compose
+docker-buildx
+podman
+kubectl
+helm
+go
+nodejs
+npm
+python
+python-pip
+rustup
+jdk-openjdk
+cmake
+ninja
+gcc
+make
+shellcheck
+openssh

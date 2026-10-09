@@ -1,6 +1,2 @@
-# AUR packages installed through the bootstrapped Yay helper.
-yay
-typora
-spaceship-prompt
-hyprmon-bin
-clipse
+# Desktop has no AUR-only packages.  Optional AUR packages live beside their
+# respective developer and creator profiles.

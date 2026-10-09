@@ -19,7 +19,7 @@ copy_file() {
     cp -a "$target" "$backup_dir/${target#"$HOME"/}"
     echo "Backed up $target"
   fi
-  if [[ "$source" == *.sh ]]; then
+  if [[ "$source" == *.sh || "$source" == "$source_dir/.config/lumen/bin/"* ]]; then
     install -Dm755 "$source" "$target"
   else
     install -Dm644 "$source" "$target"

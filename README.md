@@ -10,8 +10,8 @@ selected disk and installs the kernel, drivers, desktop, tools and user config
 directly from the USB stick.
 
 > **Warning:** the installer is currently intentionally simple and destructive.
-> It erases the entire selected disk, uses GPT + UEFI + ext4, and has no
-> encryption or dual-boot mode yet.
+> It erases the entire selected disk and requires UEFI. Choose ext4 or Btrfs
+> in the installer; encryption and dual-boot mode are not implemented yet.
 
 ## Included desktop
 
@@ -101,7 +101,8 @@ when the live environment and installer otherwise start.
    Replace `/dev/sdX` with the whole USB device, never a partition such as
    `/dev/sdX1`.
 2. Boot it in UEFI mode and select **Start Lumen Arch Installer**.
-3. Enter username, user password, root password, timezone and target disk.
+3. Enter username, passwords, timezone, hostname, keyboard, filesystem, target
+   disk and optional profiles. All profiles are selected by default.
 4. Confirm the destructive disk operation. The finished system should boot to
    SDDM with all listed packages already installed.
 
@@ -118,9 +119,14 @@ The graphical installer lives at
 `iso/airootfs/usr/local/share/lumen-installer/app.py`; its privileged installer
 backend is `iso/airootfs/usr/local/bin/lumen-offline-install`.
 
+After installation, the system switches back to a normal, signature-checking
+Arch Pacman configuration. The ISO repository is deliberately not retained as
+the target's package source.
+
 ## Project layout
 
-- `profiles/desktop/` — official and AUR package lists
+- `profiles/base/` and `profiles/desktop/` — required system and desktop lists
+- `profiles/developer/`, `creator/`, `gaming/` — optional, default-selected lists
 - `profiles/installer/` — packages necessary in the live environment
 - `iso/` — ArchISO overlay, boot-menu entries, service and installer
 - `home/` — configuration copied into the installed user's home directory

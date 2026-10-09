@@ -1,5 +1,2 @@
-# Present the guided Lumen installer as soon as the live ISO root shell opens.
-if [[ -z "${LUMEN_INSTALLER_STARTED:-}" && -t 0 ]]; then
-  export LUMEN_INSTALLER_STARTED=1
-  /usr/local/bin/lumen-install
-fi
+# The graphical installer normally owns tty1.  If it was closed, the same
+# installer can be started again explicitly with `lumen-install`.

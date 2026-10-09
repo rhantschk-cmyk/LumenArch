@@ -1,0 +1,15 @@
+# Required system and hardware support. This profile is always installed.
+base
+base-devel
+linux
+linux-firmware
+networkmanager
+sudo
+systemd
+intel-ucode
+amd-ucode
+mesa
+vulkan-intel
+vulkan-radeon
+nvidia-open
+btrfs-progs

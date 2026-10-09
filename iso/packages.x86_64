@@ -2,8 +2,6 @@ base
 linux
 linux-firmware
 syslinux
-archinstall
-gum
 networkmanager
 git
 sudo

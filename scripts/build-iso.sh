@@ -43,15 +43,25 @@ stage_repo="$profile_dir/airootfs/opt/lumen/offline/repo"
 # cache between builds. A refreshed pacman database downloads only new versions.
 find "$package_cache" -maxdepth 1 -type f -name '*.pkg.tar.zst' -exec ln -f {} "$stage_repo"/ \;
 tar --exclude=.git --exclude=build -C "$root_dir" -cf - . | tar -C "$profile_dir/airootfs/opt/lumen" -xf -
-mapfile -t offline_packages < <(sed -E '/^($|#)/d' \
-  "$root_dir/profiles/installer/packages.pacman" \
-  "$root_dir/profiles/desktop/packages.pacman" | awk '!seen[$0]++')
+profile_names=(base desktop developer creator gaming)
+package_files=("$root_dir/profiles/installer/packages.pacman")
+aur_files=()
+for profile in "${profile_names[@]}"; do
+  package_files+=("$root_dir/profiles/$profile/packages.pacman")
+  [[ -f "$root_dir/profiles/$profile/packages.aur" ]] && aur_files+=("$root_dir/profiles/$profile/packages.aur")
+done
+mapfile -t offline_packages < <(sed -E '/^($|#)/d' "${package_files[@]}" | awk '!seen[$0]++')
+mapfile -t aur_packages < <(sed -E '/^($|#)/d' "${aur_files[@]}" | awk '!seen[$0]++')
 # Resolve in an empty root rather than against the build container's installed
 # packages. This forces pacman to cache every transitive dependency required by
 # the target system (glibc, X11, Vulkan, and so on), not only top-level apps.
 offline_root="$(mktemp -d)"
 offline_conf="$(mktemp)"
-sed "/^\[options\]/a CacheDir = $stage_repo" /etc/pacman.conf > "$offline_conf"
+# Steam is part of the default Gaming profile.  Make multilib explicit even
+# when an Arch container image ships it commented out.
+sed -e '/^#\[multilib\]/s/^#//' \
+    -e '/^#Include = \/etc\/pacman.d\/mirrorlist/s/^#//' \
+    -e "/^\[options\]/a CacheDir = $stage_repo" /etc/pacman.conf > "$offline_conf"
 pacstrap -K -C "$offline_conf" "$offline_root" "${offline_packages[@]}"
 
 # pacstrap may use the build container's normal pacman cache even when a
@@ -71,11 +81,11 @@ while IFS=' ' read -r package_name package_version; do
   ln -f "${cached_matches[0]}" "$stage_repo/"
 done < <(pacman -Q --root "$offline_root")
 
-rm -rf "$offline_root" "$offline_conf"
+rm -rf "$offline_root"
 find "$stage_repo" -maxdepth 1 -type f -name '*.pkg.tar.zst' -exec ln -f {} "$package_cache"/ \;
 
 # Build AUR applications while the build host has internet; only their finished
-# signed package archives are put on the ISO, never an AUR network dependency.
+# package archives are put on the ISO, never an AUR network dependency.
 useradd -m -r -s /bin/bash lumen-builder 2>/dev/null || true
 printf 'lumen-builder ALL=(ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/lumen-builder
 chmod 440 /etc/sudoers.d/lumen-builder
@@ -83,8 +93,7 @@ aur_work="$(mktemp -d)"
 chown lumen-builder:lumen-builder "$aur_work"
 chmod 700 "$aur_work"
 trap 'rm -rf "$profile_dir" "$aur_work"' EXIT
-while IFS= read -r aur_package; do
-  [[ -z "$aur_package" || "$aur_package" == \#* ]] && continue
+for aur_package in "${aur_packages[@]}"; do
   cached_aur=("$aur_cache"/"$aur_package"-*.pkg.tar.zst)
   if ((${#cached_aur[@]})); then
     ln -f "${cached_aur[@]}" "$stage_repo"/
@@ -97,11 +106,29 @@ while IFS= read -r aur_package; do
   runuser -u lumen-builder -- bash -lc "cd '$aur_work/$aur_package' && makepkg --syncdeps --noconfirm --cleanbuild"
   cp "$aur_work/$aur_package"/*.pkg.tar.zst "$stage_repo/"
   cp "$aur_work/$aur_package"/*.pkg.tar.zst "$aur_cache/"
-done < "$root_dir/profiles/desktop/packages.aur"
+done
 repo-add "$stage_repo/lumen-offline.db.tar.gz" "$stage_repo"/*.pkg.tar.zst
 
-# Add the graphical installer to the legacy BIOS menu as well as systemd-boot.
-printf '\nINCLUDE lumen-installer.cfg\n' >> "$profile_dir/syslinux/syslinux.cfg"
+# AUR packages may introduce official runtime dependencies which are absent
+# from the explicitly requested profile packages.  Resolve the final set once
+# more against the local repository and stage that exact closure as well.
+printf '\n[lumen-build]\nSigLevel = Optional TrustAll\nServer = file://%s\n' "$stage_repo" >> "$offline_conf"
+complete_root="$(mktemp -d)"
+pacstrap -K -C "$offline_conf" "$complete_root" "${offline_packages[@]}" "${aur_packages[@]}"
+while IFS=' ' read -r package_name package_version; do
+  staged_matches=("$stage_repo/$package_name-$package_version-"*.pkg.tar.zst)
+  if ((${#staged_matches[@]})); then
+    continue
+  fi
+  cached_matches=("/var/cache/pacman/pkg/$package_name-$package_version-"*.pkg.tar.zst)
+  if ((${#cached_matches[@]} == 0)); then
+    echo "Offline repository is missing $package_name $package_version" >&2
+    exit 1
+  fi
+  ln -f "${cached_matches[0]}" "$stage_repo/"
+done < <(pacman -Q --root "$complete_root")
+rm -rf "$complete_root" "$offline_conf"
+repo-add "$stage_repo/lumen-offline.db.tar.gz" "$stage_repo"/*.pkg.tar.zst
 
 if [[ "$EUID" -eq 0 ]]; then
   mkarchiso -v -r -w "$work_dir" -o "$out_dir" "$profile_dir"

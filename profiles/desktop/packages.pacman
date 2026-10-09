@@ -29,35 +29,9 @@ udisks2
 gvfs
 gvfs-mtp
 
-# Applications
+# Desktop applications
 firefox
 alacritty
-git
-git-delta
-obs-studio
-obs-studio-plugin-browser
-obsidian
-neovim
-tmux
-lazygit
-lazydocker
-docker
-docker-compose
-docker-buildx
-podman
-kubectl
-helm
-go
-nodejs
-npm
-python
-python-pip
-rustup
-jdk-openjdk
-cmake
-ninja
-gcc
-make
 thunar
 thunar-archive-plugin
 file-roller
@@ -70,9 +44,6 @@ slurp
 swappy
 satty
 playerctl
-mpv
-imv
-evince
 gparted
 gnome-keyring
 seahorse
@@ -111,7 +82,6 @@ openssh
 man-db
 man-pages
 tealdeer
-shellcheck
 arch-install-scripts
 jq
 pacman-contrib
