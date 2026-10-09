@@ -57,11 +57,17 @@ mapfile -t aur_packages < <(sed -E '/^($|#)/d' "${aur_files[@]}" | awk '!seen[$0
 # the target system (glibc, X11, Vulkan, and so on), not only top-level apps.
 offline_root="$(mktemp -d)"
 offline_conf="$(mktemp)"
-# Steam is part of the default Gaming profile.  Make multilib explicit even
-# when an Arch container image ships it commented out.
-sed -e '/^#\[multilib\]/s/^#//' \
-    -e '/^#Include = \/etc\/pacman.d\/mirrorlist/s/^#//' \
-    -e "/^\[options\]/a CacheDir = $stage_repo" /etc/pacman.conf > "$offline_conf"
+# Steam is part of the default Gaming profile.  Arch container images commonly
+# ship multilib commented out; append an explicit enabled section instead of
+# relying on the exact formatting of the image's pacman.conf.
+sed "/^\[options\]/a CacheDir = $stage_repo" /etc/pacman.conf > "$offline_conf"
+if ! grep -qx '\[multilib\]' "$offline_conf"; then
+  cat >> "$offline_conf" <<'EOF'
+
+[multilib]
+Include = /etc/pacman.d/mirrorlist
+EOF
+fi
 pacstrap -K -C "$offline_conf" "$offline_root" "${offline_packages[@]}"
 
 # pacstrap may use the build container's normal pacman cache even when a
