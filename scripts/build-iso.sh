@@ -182,7 +182,7 @@ repo-add "$stage_repo/lumen-offline.db.tar.gz" "$stage_repo"/*.pkg.tar.zst
 # AUR packages may introduce official runtime dependencies which are absent
 # from the explicitly requested profile packages.  Resolve the final set once
 # more against the local repository and stage that exact closure as well.
-printf '\n[lumen-build]\nSigLevel = Optional TrustAll\nServer = file://%s\n' "$stage_repo" >> "$offline_conf"
+printf '\n[lumen-offline]\nSigLevel = Optional TrustAll\nServer = file://%s\n' "$stage_repo" >> "$offline_conf"
 complete_root="$(mktemp -d)"
 pacstrap -K -C "$offline_conf" "$complete_root" "${offline_packages[@]}" "${aur_packages[@]}"
 while IFS=' ' read -r package_name package_version; do
