@@ -60,6 +60,13 @@ stage_installed_package() {
   }
 }
 
+checkpoint_has_requested_packages() {
+  local package
+  for package in "${offline_packages[@]}" "${aur_packages[@]}"; do
+    compgen -G "$checkpoint_repo/$package-*.pkg.tar.zst" >/dev/null || return 1
+  done
+}
+
 command -v mkarchiso >/dev/null || {
   echo 'Install the archiso package first: sudo pacman -S archiso' >&2
   exit 1
@@ -108,14 +115,25 @@ else
   done
   mapfile -t offline_packages < <(sed -E '/^($|#)/d' "${package_files[@]}" | awk '!seen[$0]++')
   mapfile -t aur_packages < <(sed -E '/^($|#)/d' "${aur_files[@]}" | awk '!seen[$0]++')
-  package_input_hash="$(sha256sum "${package_files[@]}" "${aur_files[@]}" "$root_dir/offline/pacman.conf" "$root_dir/scripts/build-iso.sh" | sha256sum | awk '{print $1}')"
+  package_input_hash="$(sha256sum "${package_files[@]}" "${aur_files[@]}" "$root_dir/offline/pacman.conf" | sha256sum | awk '{print $1}')"
 
-  if [[ "${LUMEN_REBUILD_PACKAGES:-0}" != 1 && -f "$checkpoint_fingerprint" \
-      && "$(<"$checkpoint_fingerprint")" == "$package_input_hash" \
-      && -f "$checkpoint_repo/lumen-offline.db.tar.gz" ]] \
+  checkpoint_reusable=0
+  if [[ "${LUMEN_REBUILD_PACKAGES:-0}" != 1 && -f "$checkpoint_repo/lumen-offline.db.tar.gz" ]] \
       && compgen -G "$checkpoint_repo/glibc-*.pkg.tar.zst" >/dev/null; then
+    if [[ -f "$checkpoint_fingerprint" && "$(<"$checkpoint_fingerprint")" == "$package_input_hash" ]]; then
+      checkpoint_reusable=1
+    elif checkpoint_has_requested_packages; then
+      # Checkpoints created by older build scripts included that script in the
+      # fingerprint. Their package closure is still valid when every requested
+      # package archive is present.
+      checkpoint_reusable=1
+      echo 'Adopting a compatible checkpoint created by an older build script.'
+    fi
+  fi
+  if ((checkpoint_reusable)); then
     echo 'Phase 1/2: reusing validated offline package checkpoint.'
     find "$checkpoint_repo" -maxdepth 1 -type f -exec ln {} "$stage_repo"/ \;
+    [[ -f "$stage_repo/lumen-offline.db" ]] || ln -f "$stage_repo/lumen-offline.db.tar.gz" "$stage_repo/lumen-offline.db"
   else
     echo 'Phase 1/2: resolving and staging the offline package closure.'
     # Hard links avoid duplicating several gigabytes while keeping a persistent
@@ -178,6 +196,9 @@ for aur_package in "${aur_packages[@]}"; do
   cp "$aur_work/$aur_package"/*.pkg.tar.zst "$aur_cache/"
 done
 repo-add "$stage_repo/lumen-offline.db.tar.gz" "$stage_repo"/*.pkg.tar.zst
+# Pacman requests <repo>.db from a file:// server even though repo-add writes
+# the compressed database as <repo>.db.tar.gz. Keep both names in the ISO.
+ln -f "$stage_repo/lumen-offline.db.tar.gz" "$stage_repo/lumen-offline.db"
 
 # AUR packages may introduce official runtime dependencies which are absent
 # from the explicitly requested profile packages.  Resolve the final set once
@@ -190,6 +211,7 @@ while IFS=' ' read -r package_name package_version; do
 done < <(pacman -Q --root "$complete_root")
 rm -rf "$complete_root" "$offline_conf"
 repo-add "$stage_repo/lumen-offline.db.tar.gz" "$stage_repo"/*.pkg.tar.zst
+ln -f "$stage_repo/lumen-offline.db.tar.gz" "$stage_repo/lumen-offline.db"
     find "$stage_repo" -maxdepth 1 -type f -name '*.pkg.tar.zst' -exec ln -f {} "$package_cache"/ \;
 
     # Publish only a completed closure. A failed package or AUR build leaves
