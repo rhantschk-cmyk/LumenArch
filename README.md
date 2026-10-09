@@ -1,80 +1,132 @@
 # Lumen Arch
 
-Lumen Arch is a usable, personal Arch Linux desktop profile built around
-Hyprland and Quickshell. It takes inspiration from the opinionated, polished
-workflow of Omarchy while keeping the distribution definition small, readable,
-and entirely owned by this repository.
+Lumen Arch is a personal, polished and offline-first Arch Linux desktop. It is
+inspired by the focused Hyprland workflow of Omarchy, but every package,
+configuration file and installer decision lives in this repository.
 
-It is an offline-first ISO installer. The Lumen boot-menu entry starts a
-full-screen installer that erases the selected disk, creates a UEFI boot layout,
-and installs the complete desktop from packages embedded in the ISO. No network
-connection is required once the ISO has been built.
+The ISO contains a complete local Pacman repository. The target computer needs
+no internet connection while installing: the graphical installer partitions the
+selected disk and installs the kernel, drivers, desktop, tools and user config
+directly from the USB stick.
 
-## What is included
+> **Warning:** the installer is currently intentionally simple and destructive.
+> It erases the entire selected disk, uses GPT + UEFI + ext4, and has no
+> encryption or dual-boot mode yet.
 
-- Hyprland Wayland session with sensible laptop/desktop keybindings
-- Quickshell top bar, workspace indicator, clock, and system tray
-- SDDM login manager, PipeWire/WirePlumber audio, NetworkManager, Bluetooth,
-  portals, polkit, notifications, screen locking, idle management, and
-  clipboard history
-- Firefox, Thunar, image/PDF tools, terminal, launcher, screenshot tools,
-  fonts, theming, and common archive/media support
-- A declared package set and idempotent installation scripts
+## Included desktop
 
-## Installation
+- Hyprland, Quickshell, SDDM, Hyprlock and Hypridle
+- PipeWire/WirePlumber, NetworkManager, Bluetooth, portals, Polkit and
+  notifications
+- Firefox, Thunar, terminal, launcher, screenshot and power menus
+- OBS Studio, Neovim, Tmux, Git/LazyGit, Obsidian, Typora, Docker and Yay
+- Zsh with Spaceship prompt, Zoxide, Eza, Bat and a custom Fastfetch setup
+- HyprMon (`hyprmon`) for monitor configuration
+- Intel/AMD Mesa + Vulkan and NVIDIA Open driver packages
 
-Boot the ISO and select **Start Lumen Arch Installer**. The full-screen wizard
-asks for username, user/root passwords, timezone, and a target disk. It shows
-one explicit destructive confirmation before partitioning the selected drive.
-
-## Daily use
+## Shortcuts
 
 | Action | Shortcut |
 | --- | --- |
 | Terminal | `Super + Return` |
-| App launcher | `Super + Space` |
+| Launcher | `Super + Space` |
 | File manager | `Super + E` |
 | Browser | `Super + B` |
 | Close window | `Super + Q` |
 | Full screenshot | `Print` |
 | Region screenshot | `Super + Print` |
+| Screenshot menu | `Super + S` |
 | Lock | `Super + L` |
 | Power menu | `Super + Escape` |
-
-## Productivity shortcuts
-
-| App or tool | Shortcut |
-| --- | --- |
 | OBS Studio | `Super + O` |
 | Neovim | `Super + N` |
 | Tmux workspace | `Super + T` |
-| Git dashboard (LazyGit) | `Super + G` |
+| LazyGit | `Super + G` |
 | Obsidian | `Super + M` |
 | Typora | `Super + Shift + M` |
-| Lumen update/install center | `Super + U` |
-| Screenshot menu | `Super + S` |
+| Update/install centre | `Super + U` |
 | Docker dashboard | `Super + D` |
-| Monitor configuration (HyprMon) | `Super + ,` |
+| HyprMon | `Super + ,` |
 
-The terminal opens in Zsh with Spaceship/Starship fallback, `cd` mapped to
-Zoxide, `ls` mapped to Eza, and `cat` mapped to Bat. Run `fastfetch` for the
-Lumen system card.
+The terminal starts Zsh. `cd` invokes Zoxide (`z`), `ls` invokes Eza and `cat`
+invokes Bat. Run `fastfetch` for the Lumen system card.
 
-See `docs/architecture.md` for the component map and `docs/customization.md`
-for the supported places to personalize the desktop.
+## Build on NixOS
 
-## Build an installer ISO
-
-On an Arch build host, install `archiso` and run:
+Docker must be enabled on the host. The build uses a privileged Arch container
+because ArchISO requires mount and loop-device access.
 
 ```bash
-./scripts/build-iso.sh
+cd ~/Projekte/Distro/lumen-arch
+./scripts/build-iso-container.sh
 ```
 
-The resulting ISO is written to `build/iso/`. Its `lumen-install` command
-starts Archinstall for the deliberately machine-specific disk and boot choices;
-after first boot, apply the Lumen desktop profile using the fast path above.
+The resulting image is placed in `build/iso/`. Persistent caches make repeated
+builds much faster:
 
-On NixOS or another Linux distribution, enable Docker and run
-`./scripts/build-iso-container.sh`. The container is privileged because
-ArchISO needs mount and loop-device capabilities while generating the image.
+- `build/container-pacman-cache/` — official Arch package downloads
+- `build/offline-package-cache/` — packages embedded into the local repository
+- `build/aur-package-cache/` — completed AUR package archives
+
+Do not delete those directories unless a clean package download is desired.
+Do not commit `build/`.
+
+## Test in QEMU
+
+The helper starts the newest ISO with UEFI firmware and a persistent 64 GB
+virtual disk:
+
+```bash
+./scripts/run-qemu.sh
+```
+
+To test again with a blank disk without deleting the usual VM, choose another
+directory:
+
+```bash
+LUMEN_VM_DIR="$HOME/VMs/lumen-test-clean" ./scripts/run-qemu.sh
+```
+
+The QEMU message about attaching `/dev/sr0` to a loopback device is harmless
+when the live environment and installer otherwise start.
+
+## Install from USB
+
+1. Flash the ISO to the correct USB device, for example:
+
+   ```bash
+   sudo dd if=build/iso/lumen-arch-YYYY.MM.DD-x86_64.iso of=/dev/sdX bs=4M conv=fsync status=progress
+   ```
+
+   Replace `/dev/sdX` with the whole USB device, never a partition such as
+   `/dev/sdX1`.
+2. Boot it in UEFI mode and select **Start Lumen Arch Installer**.
+3. Enter username, user password, root password, timezone and target disk.
+4. Confirm the destructive disk operation. The finished system should boot to
+   SDDM with all listed packages already installed.
+
+## Offline repository implementation
+
+`scripts/build-iso.sh` builds a clean temporary target root with `pacstrap`.
+It then reads that root's Pacman database and copies every exact installed
+package version into `opt/lumen/offline/repo` before generating
+`lumen-offline.db.tar.gz`. This detail matters: dependencies such as `glibc`
+can otherwise remain only in Docker's Pacman cache, leading to errors such as
+“cannot resolve glibc, a dependency of libxdmcp” during installation.
+
+The graphical installer lives at
+`iso/airootfs/usr/local/share/lumen-installer/app.py`; its privileged installer
+backend is `iso/airootfs/usr/local/bin/lumen-offline-install`.
+
+## Project layout
+
+- `profiles/desktop/` — official and AUR package lists
+- `profiles/installer/` — packages necessary in the live environment
+- `iso/` — ArchISO overlay, boot-menu entries, service and installer
+- `home/` — configuration copied into the installed user's home directory
+- `system/` — system-wide SDDM and related configuration
+- `scripts/` — ISO build, QEMU test and validation helpers
+- `docs/` — architecture and customization notes
+
+See [docs/architecture.md](docs/architecture.md) and
+[docs/customization.md](docs/customization.md) for details.
