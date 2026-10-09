@@ -3,6 +3,7 @@ set -Eeuo pipefail
 config="$1"
 log=/tmp/lumen-install.log
 exec > >(tee -a "$log") 2>&1
+trap 'status=$?; printf "\nLUMEN INSTALL ERROR: command failed at line %s (exit %s)\n" "$LINENO" "$status"' ERR
 username=$(jq -r .username "$config")
 user_password=$(jq -r .user_password "$config")
 root_password=$(jq -r .root_password "$config")

@@ -173,11 +173,12 @@ class LumenInstaller(Gtk.Application):
         self.log_view.scroll_to_iter(self.log_buffer.get_end_iter(), 0.0, False, 0.0, 1.0)
         return False
 
-    def finish_install(self, code):
+    def finish_install(self, code, last_line):
         if code == 0:
             self.status.set_text("Installation complete — reboot and remove the USB.")
         else:
-            self.status.set_text("Installation failed. The complete error is shown below.")
+            detail = last_line or "No log line was produced."
+            self.status.set_text(f"Installation failed (exit {code}): {detail}")
             self.close_button.set_visible(True)
         return False
 
@@ -188,9 +189,12 @@ class LumenInstaller(Gtk.Application):
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
         )
+        last_line = ""
         for line in process.stdout:
+            if line.strip():
+                last_line = line.strip()
             GLib.idle_add(self.append_log, line)
-        GLib.idle_add(self.finish_install, process.wait())
+        GLib.idle_add(self.finish_install, process.wait(), last_line)
 
 
 app = LumenInstaller()

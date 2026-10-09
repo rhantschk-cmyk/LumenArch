@@ -2,6 +2,7 @@
 Description=Lumen graphical offline installer
 After=systemd-user-sessions.service seatd.service
 Requires=seatd.service
+Wants=getty@tty2.service
 Conflicts=getty@tty1.service
 
 [Service]
