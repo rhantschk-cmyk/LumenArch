@@ -110,11 +110,14 @@ pacstrap -K -C "$offline_conf" "$offline_root" "${offline_packages[@]}"
 # of truth and copy every *installed exact version* from either cache.  This
 # avoids a repository with X11 libraries but without their glibc dependency.
 while IFS=' ' read -r package_name package_version; do
-  staged_matches=("$stage_repo/$package_name-$package_version-"*.pkg.tar.zst)
+  # Pacman's installed version includes an optional epoch (for example
+  # 1:1.2.12-6), while package archive filenames deliberately omit it.
+  package_archive_version="${package_version#*:}"
+  staged_matches=("$stage_repo/$package_name-$package_archive_version-"*.pkg.tar.zst)
   if ((${#staged_matches[@]})); then
     continue
   fi
-  cached_matches=("/var/cache/pacman/pkg/$package_name-$package_version-"*.pkg.tar.zst)
+  cached_matches=("/var/cache/pacman/pkg/$package_name-$package_archive_version-"*.pkg.tar.zst)
   if ((${#cached_matches[@]} == 0)); then
     echo "Offline repository is missing $package_name $package_version" >&2
     exit 1
@@ -157,11 +160,12 @@ printf '\n[lumen-build]\nSigLevel = Optional TrustAll\nServer = file://%s\n' "$s
 complete_root="$(mktemp -d)"
 pacstrap -K -C "$offline_conf" "$complete_root" "${offline_packages[@]}" "${aur_packages[@]}"
 while IFS=' ' read -r package_name package_version; do
-  staged_matches=("$stage_repo/$package_name-$package_version-"*.pkg.tar.zst)
+  package_archive_version="${package_version#*:}"
+  staged_matches=("$stage_repo/$package_name-$package_archive_version-"*.pkg.tar.zst)
   if ((${#staged_matches[@]})); then
     continue
   fi
-  cached_matches=("/var/cache/pacman/pkg/$package_name-$package_version-"*.pkg.tar.zst)
+  cached_matches=("/var/cache/pacman/pkg/$package_name-$package_archive_version-"*.pkg.tar.zst)
   if ((${#cached_matches[@]} == 0)); then
     echo "Offline repository is missing $package_name $package_version" >&2
     exit 1
