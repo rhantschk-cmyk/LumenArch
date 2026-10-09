@@ -86,6 +86,14 @@ To deliberately rebuild that stage, run:
 LUMEN_REBUILD_PACKAGES=1 ./scripts/build-iso-container.sh
 ```
 
+The container reuses its Pacman archive cache and does not upgrade its build
+environment on ordinary runs. Only use the following when you intentionally
+want refreshed Arch build tooling:
+
+```bash
+LUMEN_REFRESH_BUILDER=1 ./scripts/build-iso-container.sh
+```
+
 ## Test in QEMU
 
 The helper starts the newest ISO with UEFI firmware and a persistent 64 GB

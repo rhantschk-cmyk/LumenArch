@@ -20,6 +20,10 @@ checkpoint_fingerprint="$checkpoint_root/package-input.sha256"
 stage_from_container_cache() {
   local package_archive="$1"
   cp --reflink=auto -- "$package_archive" "$stage_repo/"
+  # Persist progress immediately. If a later dependency or AUR recipe fails,
+  # the next run can reuse every archive reached so far instead of downloading
+  # the same part of the closure again.
+  ln -f "$stage_repo/$(basename "$package_archive")" "$package_cache/"
 }
 
 command -v mkarchiso >/dev/null || {
