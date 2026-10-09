@@ -4,7 +4,9 @@ set -Eeuo pipefail
 shopt -s nullglob
 root_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 work_dir="$root_dir/build/archiso-work"
+dev_mode="${LUMEN_DEV_ISO:-0}"
 out_dir="$root_dir/build/iso"
+[[ "$dev_mode" == 1 ]] && out_dir="$root_dir/build/iso-dev"
 package_cache="$root_dir/build/offline-package-cache"
 aur_cache="$root_dir/build/aur-package-cache"
 
@@ -43,6 +45,13 @@ stage_repo="$profile_dir/airootfs/opt/lumen/offline/repo"
 # cache between builds. A refreshed pacman database downloads only new versions.
 find "$package_cache" -maxdepth 1 -type f -name '*.pkg.tar.zst' -exec ln -f {} "$stage_repo"/ \;
 tar --exclude=.git --exclude=build -C "$root_dir" -cf - . | tar -C "$profile_dir/airootfs/opt/lumen" -xf -
+if [[ "$dev_mode" == 1 ]]; then
+  # Fast feedback image: archiso still provides a real live session, Cage and
+  # the current GTK installer, but omits the multi-gigabyte target repository.
+  # It is deliberately marked non-installable to make accidental disk writes
+  # impossible while iterating on the UI and live-session behaviour.
+  touch "$profile_dir/airootfs/opt/lumen/DEVELOPMENT_ISO"
+else
 profile_names=(base desktop developer creator gaming)
 package_files=("$root_dir/profiles/installer/packages.pacman")
 aur_files=()
@@ -135,6 +144,7 @@ while IFS=' ' read -r package_name package_version; do
 done < <(pacman -Q --root "$complete_root")
 rm -rf "$complete_root" "$offline_conf"
 repo-add "$stage_repo/lumen-offline.db.tar.gz" "$stage_repo"/*.pkg.tar.zst
+fi
 
 if [[ "$EUID" -eq 0 ]]; then
   mkarchiso -v -r -w "$work_dir" -o "$out_dir" "$profile_dir"

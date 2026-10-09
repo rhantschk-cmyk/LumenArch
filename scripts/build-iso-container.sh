@@ -16,6 +16,7 @@ if ! docker info >/dev/null 2>&1; then docker_cmd=(sudo docker); fi
 
 exec "${docker_cmd[@]}" run --rm --privileged \
   --env HOST_UID="$uid" --env HOST_GID="$gid" \
+  --env LUMEN_DEV_ISO \
   --volume "$root_dir/build/container-pacman-cache:/var/cache/pacman/pkg" \
   --volume "$root_dir:/workspace" --workdir /workspace \
   archlinux:base-devel bash -lc \

@@ -47,8 +47,11 @@ class LumenInstaller(Gtk.Application):
         title = Gtk.Label(label="LUMEN ARCH", xalign=0)
         title.add_css_class("title-1")
         box.append(title)
+        development_iso = os.path.exists("/opt/lumen/DEVELOPMENT_ISO")
         box.append(Gtk.Label(
-            label="A focused, offline-first desktop — installed entirely from this USB.",
+            label=("Development ISO — graphical installer preview; disk installation is disabled."
+                   if development_iso else
+                   "A focused, offline-first desktop — installed entirely from this USB."),
             xalign=0,
         ))
 
@@ -106,6 +109,7 @@ class LumenInstaller(Gtk.Application):
         self.install_button = Gtk.Button(label="Erase disk and install Lumen", halign=Gtk.Align.START)
         self.install_button.add_css_class("suggested-action")
         self.install_button.connect("clicked", self.confirm)
+        self.install_button.set_sensitive(not development_iso)
         box.append(self.install_button)
 
         self.close_button = Gtk.Button(

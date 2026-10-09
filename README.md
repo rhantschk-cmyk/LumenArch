@@ -90,6 +90,19 @@ LUMEN_VM_DIR="$HOME/VMs/lumen-test-clean" ./scripts/run-qemu.sh
 The QEMU message about attaching `/dev/sr0` to a loopback device is harmless
 when the live environment and installer otherwise start.
 
+### Fast installer-development loop
+
+For GTK installer and live-session work, use a small non-installable preview
+ISO instead of rebuilding the complete offline package repository:
+
+```bash
+LUMEN_DEV_ISO=1 ./scripts/build-iso-container.sh
+LUMEN_ISO_DIR="$PWD/build/iso-dev" LUMEN_VM_DIR="$HOME/VMs/lumen-dev" ./scripts/run-qemu.sh
+```
+
+The preview labels itself as a Development ISO and disables disk installation.
+Build the normal ISO for package-closure and end-to-end installation tests.
+
 ## Install from USB
 
 1. Flash the ISO to the correct USB device, for example:
