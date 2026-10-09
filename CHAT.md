@@ -132,11 +132,18 @@ The wrapper runs a privileged Arch Docker container and mounts
 - `build/container-pacman-cache/` — Arch downloads used by the container
 - `build/offline-package-cache/` — archives staged for ISO reuse
 - `build/aur-package-cache/` — completed AUR packages
+- `build/offline-checkpoint/` — verified full offline closure; automatically
+  reused when package inputs have not changed
 
 A first full dependency closure is large (roughly 8 GB installed in the
 temporary root) and can take considerably longer than previous builds. It is
 normal for the temporary `build/archiso-profile.*` directory to grow first;
 the persistent offline cache is updated later.
+
+Once the package phase succeeds, the build writes
+`build/offline-checkpoint/`. Re-running after a later failure, or after a
+non-package change, skips dependency resolution and AUR builds. Set
+`LUMEN_REBUILD_PACKAGES=1` to explicitly invalidate that checkpoint.
 
 ## Package notes
 

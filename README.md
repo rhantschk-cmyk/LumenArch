@@ -71,6 +71,21 @@ builds much faster:
 Do not delete those directories unless a clean package download is desired.
 Do not commit `build/`.
 
+### Resumable release builds
+
+After the first successful dependency stage, Lumen stores a verified offline
+package checkpoint in `build/offline-checkpoint/`. A later failure during ISO
+creation, or changes limited to the installer, theme, documentation or home
+configuration, reuse this checkpoint automatically and skip Pacstrap's full
+dependency resolution and AUR builds. Package-list or package-build-script
+changes invalidate it automatically.
+
+To deliberately rebuild that stage, run:
+
+```bash
+LUMEN_REBUILD_PACKAGES=1 ./scripts/build-iso-container.sh
+```
+
 ## Test in QEMU
 
 The helper starts the newest ISO with UEFI firmware and a persistent 64 GB

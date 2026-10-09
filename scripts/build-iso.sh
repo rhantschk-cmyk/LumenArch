@@ -9,6 +9,9 @@ out_dir="$root_dir/build/iso"
 [[ "$dev_mode" == 1 ]] && out_dir="$root_dir/build/iso-dev"
 package_cache="$root_dir/build/offline-package-cache"
 aur_cache="$root_dir/build/aur-package-cache"
+checkpoint_root="$root_dir/build/offline-checkpoint"
+checkpoint_repo="$checkpoint_root/repo"
+checkpoint_fingerprint="$checkpoint_root/package-input.sha256"
 
 command -v mkarchiso >/dev/null || {
   echo 'Install the archiso package first: sudo pacman -S archiso' >&2
@@ -41,9 +44,6 @@ rm "$profile_dir/packages.releng.x86_64"
 # The installed system therefore never needs network access during installation.
 mkdir -p "$profile_dir/airootfs/opt/lumen/offline/repo"
 stage_repo="$profile_dir/airootfs/opt/lumen/offline/repo"
-# Hard links avoid duplicating several gigabytes while keeping a persistent
-# cache between builds. A refreshed pacman database downloads only new versions.
-find "$package_cache" -maxdepth 1 -type f -name '*.pkg.tar.zst' -exec ln -f {} "$stage_repo"/ \;
 tar --exclude=.git --exclude=build -C "$root_dir" -cf - . | tar -C "$profile_dir/airootfs/opt/lumen" -xf -
 if [[ "$dev_mode" == 1 ]]; then
   # Fast feedback image: archiso still provides a real live session, Cage and
@@ -52,15 +52,28 @@ if [[ "$dev_mode" == 1 ]]; then
   # impossible while iterating on the UI and live-session behaviour.
   touch "$profile_dir/airootfs/opt/lumen/DEVELOPMENT_ISO"
 else
-profile_names=(base desktop developer creator gaming)
-package_files=("$root_dir/profiles/installer/packages.pacman")
-aur_files=()
-for profile in "${profile_names[@]}"; do
-  package_files+=("$root_dir/profiles/$profile/packages.pacman")
-  [[ -f "$root_dir/profiles/$profile/packages.aur" ]] && aur_files+=("$root_dir/profiles/$profile/packages.aur")
-done
-mapfile -t offline_packages < <(sed -E '/^($|#)/d' "${package_files[@]}" | awk '!seen[$0]++')
-mapfile -t aur_packages < <(sed -E '/^($|#)/d' "${aur_files[@]}" | awk '!seen[$0]++')
+  profile_names=(base desktop developer creator gaming)
+  package_files=("$root_dir/profiles/installer/packages.pacman")
+  aur_files=()
+  for profile in "${profile_names[@]}"; do
+    package_files+=("$root_dir/profiles/$profile/packages.pacman")
+    [[ -f "$root_dir/profiles/$profile/packages.aur" ]] && aur_files+=("$root_dir/profiles/$profile/packages.aur")
+  done
+  mapfile -t offline_packages < <(sed -E '/^($|#)/d' "${package_files[@]}" | awk '!seen[$0]++')
+  mapfile -t aur_packages < <(sed -E '/^($|#)/d' "${aur_files[@]}" | awk '!seen[$0]++')
+  package_input_hash="$(sha256sum "${package_files[@]}" "${aur_files[@]}" "$root_dir/offline/pacman.conf" "$root_dir/scripts/build-iso.sh" | sha256sum | awk '{print $1}')"
+
+  if [[ "${LUMEN_REBUILD_PACKAGES:-0}" != 1 && -f "$checkpoint_fingerprint" \
+      && "$(<"$checkpoint_fingerprint")" == "$package_input_hash" \
+      && -f "$checkpoint_repo/lumen-offline.db.tar.gz" ]] \
+      && compgen -G "$checkpoint_repo/glibc-*.pkg.tar.zst" >/dev/null; then
+    echo 'Phase 1/2: reusing validated offline package checkpoint.'
+    find "$checkpoint_repo" -maxdepth 1 -type f -exec ln {} "$stage_repo"/ \;
+  else
+    echo 'Phase 1/2: resolving and staging the offline package closure.'
+    # Hard links avoid duplicating several gigabytes while keeping a persistent
+    # cache between builds. A refreshed pacman database downloads only new versions.
+    find "$package_cache" -maxdepth 1 -type f -name '*.pkg.tar.zst' -exec ln -f {} "$stage_repo"/ \;
 # Resolve in an empty root rather than against the build container's installed
 # packages. This forces pacman to cache every transitive dependency required by
 # the target system (glibc, X11, Vulkan, and so on), not only top-level apps.
@@ -144,8 +157,21 @@ while IFS=' ' read -r package_name package_version; do
 done < <(pacman -Q --root "$complete_root")
 rm -rf "$complete_root" "$offline_conf"
 repo-add "$stage_repo/lumen-offline.db.tar.gz" "$stage_repo"/*.pkg.tar.zst
+    find "$stage_repo" -maxdepth 1 -type f -name '*.pkg.tar.zst' -exec ln -f {} "$package_cache"/ \;
+
+    # Publish only a completed closure. A failed package or AUR build leaves
+    # the previous checkpoint untouched, so the next invocation can resume.
+    checkpoint_new="$(mktemp -d "$root_dir/build/offline-checkpoint.new.XXXXXX")"
+    mkdir -p "$checkpoint_new/repo"
+    find "$stage_repo" -maxdepth 1 -type f -exec ln {} "$checkpoint_new/repo"/ \;
+    printf '%s\n' "$package_input_hash" > "$checkpoint_new/package-input.sha256"
+    rm -rf "$checkpoint_root"
+    mv "$checkpoint_new" "$checkpoint_root"
+    echo 'Offline package checkpoint saved.'
+  fi
 fi
 
+echo 'Phase 2/2: building the bootable ISO image.'
 if [[ "$EUID" -eq 0 ]]; then
   mkarchiso -v -r -w "$work_dir" -o "$out_dir" "$profile_dir"
 else
