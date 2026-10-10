@@ -267,6 +267,11 @@ controls updates. The two operations are intentionally separate.
 
 ### Temporary package shells
 
+> **Beta feature:** Temporary package shells are currently intended for
+> command-line and development tools. They do **not** support graphical
+> applications, nor do they forward Wayland, X11, D-Bus, audio, or other host
+> desktop services into the environment.
+
 `lumen shell <package>` provides a disposable, command-line package environment
 similar in spirit to `nix-shell`, without installing that package on the host
 system. It starts an isolated Arch root using only the package archives stored
@@ -282,9 +287,8 @@ lumen shell jq
 If the package and all of its dependencies are already in the local archive,
 the shell starts fully offline. When something is missing, Lumen downloads the
 official package closure into `/var/lib/lumen/repo/` first, but never installs
-it on the host. Temporary shells deliberately target command-line and
-development tools; graphical applications are not forwarded into the host
-Wayland session.
+it on the host. The root filesystem exists only until `exit`; package archives
+remain in the local repository for the next shell.
 
 ## Build in a container
 
