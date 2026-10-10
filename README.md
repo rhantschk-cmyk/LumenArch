@@ -32,6 +32,20 @@ first boot is productive rather than a blank desktop.
 Base and Desktop are always installed. Developer, Creator, and Gaming can be
 deselected in the installer when a smaller initial system is preferred.
 
+## Screenshots
+
+| Offline graphical installer | Qt6 SDDM login |
+| --- | --- |
+| ![Lumen's graphical installer with profile selection and the offline-installation warning](docs/screenshots/graphical-installer.png) | ![Lumen's SDDM login screen](docs/screenshots/sddm-login.png) |
+
+| Launcher and desktop | Control Center |
+| --- | --- |
+| ![Lumen launcher with applications, screenshots, clipboard, power and Control Center actions](docs/screenshots/launcher.png) | ![Lumen terminal Control Center with package, appearance, repository and system options](docs/screenshots/controlcenter.png) |
+
+| Terminal workflow |
+| --- |
+| ![Fastfetch system summary in the Lumen terminal](docs/screenshots/fastfetch.png) |
+
 ## Install from USB
 
 1. Build or download the ISO and flash it to the **whole** USB device. Never
