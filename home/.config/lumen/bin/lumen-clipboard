@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Selecting a history entry restores it to both Wayland clipboard selections.
+set -Eeuo pipefail
+
+entry=$(cliphist list | fuzzel --dmenu --prompt='Clipboard  ') || exit 0
+[[ -n "$entry" ]] || exit 0
+printf '%s' "$entry" | cliphist decode | wl-copy
+printf '%s' "$entry" | cliphist decode | wl-copy --primary

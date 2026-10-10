@@ -8,10 +8,10 @@ choice=$(printf '%s\n' \
   '󰈹  Clipboard history' \
   '󰐥  Power menu' | fuzzel --dmenu --prompt='Lumen  ') || exit 0
 case "$choice" in
-  *Applications*) exec fuzzel --show-actions=no ;;
+  *Applications*) exec "$HOME/.config/lumen/bin/lumen-applications" ;;
   *Screenshot*) exec "$HOME/.config/lumen/bin/lumen-screenshot" ;;
   *Control*) exec alacritty -e "$HOME/.config/lumen/bin/lumenctl" ;;
   *Monitor*) exec alacritty -e hyprmon ;;
-  *Clipboard*) cliphist list | fuzzel --dmenu | cliphist decode | wl-copy ;;
+  *Clipboard*) exec "$HOME/.config/lumen/bin/lumen-clipboard" ;;
   *Power*) exec "$HOME/.config/lumen/bin/lumen-power" ;;
 esac

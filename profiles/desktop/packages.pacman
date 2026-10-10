@@ -1,5 +1,6 @@
 # Compositor and session
 hyprland
+hyprshutdown
 hyprlock
 hypridle
 hyprpaper
@@ -9,6 +10,7 @@ xdg-desktop-portal-hyprland
 xdg-desktop-portal-gtk
 qt5-wayland
 qt6-wayland
+qt6-declarative
 
 # Login, policy and core desktop services
 sddm

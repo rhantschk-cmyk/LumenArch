@@ -107,7 +107,7 @@ hl.bind("SUPER + SHIFT + L", hl.dsp.exec_cmd("hyprlock"))
 hl.bind("SUPER + Escape", hl.dsp.exec_cmd("swaync-client -t -sw"))
 hl.bind("Print", hl.dsp.exec_cmd([[grim "$HOME/Pictures/Screenshots/$(date +'%Y-%m-%d_%H-%M-%S').png"]]))
 hl.bind("SUPER + Print", hl.dsp.exec_cmd([[slurp | grim -g - "$HOME/Pictures/Screenshots/$(date +'%Y-%m-%d_%H-%M-%S').png"]]))
-hl.bind("SUPER + SHIFT + V", hl.dsp.exec_cmd("cliphist list | fuzzel --dmenu | cliphist decode | wl-copy"))
+hl.bind("SUPER + SHIFT + V", hl.dsp.exec_cmd("$HOME/.config/lumen/bin/lumen-clipboard"))
 hl.bind("SUPER + R", hl.dsp.exec_cmd("quickshell -c lumen -r"))
 
 hl.bind("XF86AudioRaiseVolume", hl.dsp.exec_cmd("wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+"), { repeating = true })
