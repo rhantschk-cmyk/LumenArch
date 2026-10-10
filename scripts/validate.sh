@@ -38,5 +38,7 @@ grep -qx 'qt6-declarative' "$root_dir/profiles/desktop/packages.pacman"
 test -f "$root_dir/system/usr/share/sddm/themes/lumen/Main.qml"
 test -f "$root_dir/system/usr/share/sddm/themes/lumen/metadata.desktop"
 grep -qx 'QtVersion=6' "$root_dir/system/usr/share/sddm/themes/lumen/metadata.desktop"
+grep -q 'index: sessionModel.lastIndex' "$root_dir/system/usr/share/sddm/themes/lumen/Main.qml"
+grep -q 'session.index' "$root_dir/system/usr/share/sddm/themes/lumen/Main.qml"
 python -c 'import sys; compile(open(sys.argv[1], encoding="utf-8").read(), sys.argv[1], "exec")' "$root_dir/iso/airootfs/usr/local/share/lumen-installer/app.py"
 echo 'Static validation passed.'

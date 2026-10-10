@@ -21,8 +21,8 @@ Rectangle {
         Item { height: 14; width: 1 }
         TextField { id: username; width: parent.width; placeholderText: "Username"; text: userModel.lastUser; color: "#cdd6f4"; placeholderTextColor: "#a6adc8" }
         TextField { id: password; width: parent.width; placeholderText: "Password"; echoMode: TextInput.Password; color: "#cdd6f4"; placeholderTextColor: "#a6adc8"; onAccepted: loginButton.clicked() }
-        ComboBox { id: session; width: parent.width; model: sessionModel; textRole: "name"; currentIndex: sessionModel.lastIndex }
-        Button { id: loginButton; width: parent.width; text: "Enter Lumen"; onClicked: sddm.login(username.text, password.text, session.currentIndex) }
+        ComboBox { id: session; width: parent.width; model: sessionModel; textRole: "name"; index: sessionModel.lastIndex }
+        Button { id: loginButton; width: parent.width; text: "Enter Lumen"; onClicked: sddm.login(username.text, password.text, session.index) }
         Text { text: Qt.formatDateTime(new Date(), "dddd · dd MMMM · hh:mm"); anchors.horizontalCenter: parent.horizontalCenter; color: "#bac2de" }
     }
     Connections { target: sddm; function onLoginFailed() { password.text = ""; password.forceActiveFocus() } }
