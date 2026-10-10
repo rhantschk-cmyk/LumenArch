@@ -108,18 +108,22 @@ sync_repository() {
   chmod 0755 "$REPO_DIR"
 
   shopt -s nullglob
-  local archive
+  local archive package
   for archive in "$CACHE_DIR"/*.pkg.tar.*; do
     [[ "$archive" == *.sig ]] && continue
+    package=$(package_name_from_archive "$archive")
+    list_contains "$package" "$exclude_file" && continue
     cp --reflink=auto --preserve=mode,timestamps -- "$archive" "$REPO_DIR/"
   done
 
   local -a included=()
-  local package
   for archive in "$REPO_DIR"/*.pkg.tar.*; do
     [[ "$archive" == *.sig ]] && continue
     package=$(package_name_from_archive "$archive")
-    list_contains "$package" "$exclude_file" && continue
+    if list_contains "$package" "$exclude_file"; then
+      rm -f -- "$archive"
+      continue
+    fi
     included+=("$archive")
   done
 
