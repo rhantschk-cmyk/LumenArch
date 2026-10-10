@@ -53,6 +53,7 @@ install -Dm644 /opt/lumen/offline/target-pacman.conf /mnt/etc/pacman.conf
 # target-pacman.conf includes this file.  It must exist before entering the
 # chroot because pacman-key reads Pacman's configuration during initialization.
 install -Dm644 /opt/lumen/system/etc/pacman.conf.d/lumen-holds.conf /mnt/etc/pacman.conf.d/lumen-holds.conf
+install -Dm644 /opt/lumen/system/etc/pacman.conf.d/lumen-local.conf /mnt/etc/pacman.conf.d/lumen-local.conf
 [[ -f /etc/pacman.d/mirrorlist ]] && install -Dm644 /etc/pacman.d/mirrorlist /mnt/etc/pacman.d/mirrorlist
 cp -a /opt/lumen /mnt/opt/lumen
 arch-chroot /mnt /bin/bash -s -- "$username" "$timezone" "$root_password" "$user_password" "$hostname" "$keymap" "${profiles[@]}" <<'CHROOT'

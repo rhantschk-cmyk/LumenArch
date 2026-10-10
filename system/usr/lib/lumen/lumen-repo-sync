@@ -88,6 +88,19 @@ Server = file://$REPO_DIR
 EOF
 }
 
+ensure_pacman_source_is_included() {
+  local include_line='Include = /etc/pacman.conf.d/lumen-local.conf'
+  grep -Fqx "$include_line" /etc/pacman.conf && return
+  if grep -q '^LocalFileSigLevel = ' /etc/pacman.conf; then
+    sed -i "/^LocalFileSigLevel = /a $include_line" /etc/pacman.conf
+  elif grep -q '^\[options\]$' /etc/pacman.conf; then
+    sed -i "/^\[options\]$/a $include_line" /etc/pacman.conf
+  else
+    echo 'Could not enable the Lumen local Pacman source: no [options] section.' >&2
+    exit 1
+  fi
+}
+
 sync_repository() {
   require_root
   command -v repo-add >/dev/null || { echo 'repo-add is unavailable; install pacman-contrib.' >&2; exit 1; }
@@ -120,6 +133,7 @@ sync_repository() {
   repo-add "$repo_db" "${included[@]}"
   ln -f "$repo_db" "$REPO_DIR/$REPO_NAME.db"
   write_repo_fragment
+  ensure_pacman_source_is_included
   echo "Lumen local repository updated: ${#included[@]} archive(s)."
 }
 
