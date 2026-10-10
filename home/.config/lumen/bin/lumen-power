@@ -3,7 +3,7 @@ set -Eeuo pipefail
 choice=$(printf '%s\n' '󰌾  Lock' '󰍃  Log out' '󰜉  Reboot' '󰐥  Shut down' | fuzzel --dmenu --prompt='Power  ') || exit 0
 case "$choice" in
   *Lock*) exec hyprlock ;;
-  *Log*) exec hyprshutdown ;;
+  *Log*) command -v hyprshutdown >/dev/null 2>&1 && hyprshutdown || hyprctl dispatch 'hl.dsp.exit()' ;;
   *Reboot*) systemctl reboot ;;
   *Shut*) systemctl poweroff ;;
 esac
