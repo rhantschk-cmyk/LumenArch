@@ -1,0 +1,10 @@
+[SddmGreeterTheme]
+Name=Lumen
+Description=A dark, calm Lumen login experience
+Author=Lumen Arch
+License=MIT
+Type=sddm-theme
+Version=1.0
+MainScript=Main.qml
+Theme-API=2.0
+QtVersion=6

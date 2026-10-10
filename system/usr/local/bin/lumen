@@ -6,6 +6,26 @@ set -Eeuo pipefail
 # tree during validation or development.
 repo_helper="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)/usr/lib/lumen/lumen-repo-sync"
 
+control_center_path() {
+  local candidate="$HOME/.config/lumen/bin/lumenctl"
+  if [[ -x "$candidate" ]]; then
+    printf '%s\n' "$candidate"
+  elif command -v lumenctl >/dev/null 2>&1; then
+    command -v lumenctl
+  else
+    return 1
+  fi
+}
+
+open_control_center() {
+  local control_center
+  control_center=$(control_center_path) || {
+    echo 'Lumen Control Center is not installed. Run: lumen update' >&2
+    exit 1
+  }
+  exec "$control_center" "$@"
+}
+
 help() {
   cat <<'EOF'
 Lumen Arch command line
@@ -146,9 +166,14 @@ install_package() {
 }
 
 doctor() {
+  local control_center
   echo 'Lumen doctor'
   command -v Hyprland >/dev/null && echo '✓ Hyprland installed' || echo '✗ Hyprland missing'
-  command -v lumenctl >/dev/null && echo '✓ Control Center installed' || echo '✗ Control Center missing'
+  if control_center=$(control_center_path); then
+    echo "✓ Control Center installed ($control_center)"
+  else
+    echo '✗ Control Center missing; run: lumen update'
+  fi
   command -v repo-add >/dev/null && echo '✓ Local-repository tools installed' || echo '✗ pacman-contrib missing'
   "$repo_helper" status
   if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
@@ -160,8 +185,8 @@ doctor() {
 
 case "${1:-help}" in
   help|-h|--help) help ;;
-  center) exec lumenctl ;;
-  update) exec lumenctl --update ;;
+  center) open_control_center ;;
+  update) open_control_center --update ;;
   doctor) doctor ;;
   appearance) [[ $# -eq 2 ]] || { help >&2; exit 2; }; appearance "$2" ;;
   default) [[ $# -ge 3 ]] || { help >&2; exit 2; }; default_app "$2" "$3" "${4:-}" ;;

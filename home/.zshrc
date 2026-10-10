@@ -11,6 +11,7 @@ export EDITOR=nvim
 export VISUAL=nvim
 export PAGER='less -R'
 export FZF_DEFAULT_COMMAND='fd --type f --hidden --exclude .git'
+export PATH="$HOME/.local/bin:$HOME/.config/lumen/bin:$PATH"
 
 eval "$(zoxide init zsh)"
 alias cd='z'
@@ -23,7 +24,7 @@ alias c='clear'
 alias v='nvim'
 alias g='lazygit'
 alias d='lazydocker'
-alias update='lumenctl update'
+alias update='lumen update'
 
 for spaceship in /usr/share/zsh-theme/spaceship.zsh /usr/share/zsh/plugins/spaceship/spaceship.zsh; do
   [[ -r "$spaceship" ]] && source "$spaceship" && break
