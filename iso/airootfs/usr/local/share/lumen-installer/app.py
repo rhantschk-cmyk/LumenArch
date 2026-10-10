@@ -120,6 +120,15 @@ class LumenInstaller(Gtk.Application):
         self.close_button.connect("clicked", lambda *_: self.quit())
         box.append(self.close_button)
 
+        self.reboot_button = Gtk.Button(
+            label="Reboot now and remove the USB drive",
+            halign=Gtk.Align.START,
+            visible=False,
+        )
+        self.reboot_button.add_css_class("suggested-action")
+        self.reboot_button.connect("clicked", lambda *_: subprocess.Popen(["systemctl", "reboot"]))
+        box.append(self.reboot_button)
+
         self.log_buffer = Gtk.TextBuffer()
         self.log_view = Gtk.TextView(
             buffer=self.log_buffer, editable=False, cursor_visible=False, monospace=True, vexpand=True
@@ -176,6 +185,7 @@ class LumenInstaller(Gtk.Application):
     def finish_install(self, code, last_line):
         if code == 0:
             self.status.set_text("Installation complete — reboot and remove the USB.")
+            self.reboot_button.set_visible(True)
         else:
             detail = last_line or "No log line was produced."
             self.status.set_text(f"Installation failed (exit {code}): {detail}")

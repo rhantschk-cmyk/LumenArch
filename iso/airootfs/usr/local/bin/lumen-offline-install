@@ -90,6 +90,7 @@ cp -a /opt/lumen/system/. /
 find /opt/lumen/home -type f -print0 | while IFS= read -r -d '' source; do
   target="/home/$user/${source#/opt/lumen/home/}"; install -Dm644 "$source" "$target"; [[ "$source" == *.sh || "$source" == */bin/* ]] && chmod 755 "$target"; chown "$user:$user" "$target"
 done
+install -d -o "$user" -g "$user" "/home/$user/Pictures/Screenshots"
 systemctl enable NetworkManager bluetooth sddm power-profiles-daemon docker
 CHROOT
 rm -f "$config"
