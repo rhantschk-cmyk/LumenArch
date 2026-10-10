@@ -2,7 +2,7 @@
 
 The files below are designed to be edited directly after installation:
 
-- `~/.config/hypr/hyprland.conf` — monitors, keyboard layout, bindings, rules
+- `~/.config/hypr/hyprland.lua` — monitors, keyboard layout, bindings, rules
 - `~/.config/quickshell/lumen/shell.qml` — panel layout and colors
 - `~/.config/lumen/wallpaper.svg` — the wallpaper source; restarting Hyprland
   regenerates its PNG automatically

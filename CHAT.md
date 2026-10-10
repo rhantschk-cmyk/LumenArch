@@ -195,7 +195,7 @@ chmod u+rw "$HOME/VMs/lumen-test/OVMF_VARS.fd"
 - `scripts/build-iso.sh` — local package repository creation
 - `scripts/build-iso-container.sh` — NixOS/non-Arch Docker wrapper
 - `scripts/run-qemu.sh` — one-command UEFI QEMU test
-- `home/.config/hypr/hyprland.conf` — bindings and compositor config
+- `home/.config/hypr/hyprland.lua` — bindings and compositor config
 - `home/.config/quickshell/lumen/shell.qml` — top bar
 - `home/.config/lumen/bin/` — launcher, screenshots, power and update menus
 - `home/.zshrc` — `cd → z`, `ls → eza`, `cat → bat` aliases
