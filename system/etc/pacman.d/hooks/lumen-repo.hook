@@ -1,0 +1,10 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = *
+
+[Action]
+Description = Updating the Lumen local package repository…
+When = PostTransaction
+Exec = /usr/lib/lumen/lumen-repo-sync --from-cache

@@ -1,24 +1,36 @@
 #!/usr/bin/env bash
-# A discoverable, menu-driven maintenance console. Administrative actions ask first.
-set -Eeuo pipefail
+# Lumen's terminal UI. Every action delegates to the documented `lumen` CLI.
+set -uo pipefail
+
 title() { gum style --border double --border-foreground 212 --padding '1 3' --margin '1 0' '✦  LUMEN CONTROL CENTER'; }
-pause() { gum input --placeholder 'Press Enter to return…' >/dev/null; }
-update() {
+pause() { gum input --placeholder 'Press Enter to return…' >/dev/null || true; }
+run() {
+  printf '\n'
+  if "$@"; then
+    gum style --foreground 42 'Completed successfully.'
+  else
+    local status=$?
+    gum style --foreground 196 "Action failed (exit $status). The output above explains why."
+  fi
+  pause
+}
+
+update_lumen() {
   title
   local repo_dir="$HOME/.local/share/lumen-arch/source"
   mkdir -p "$(dirname "$repo_dir")"
   if [[ -d "$repo_dir/.git" ]]; then
-    gum spin --spinner dot --title 'Fetching the Lumen Arch repository…' -- git -C "$repo_dir" pull --ff-only
+    run git -C "$repo_dir" pull --ff-only
   else
-    gum spin --spinner dot --title 'Cloning the Lumen Arch repository…' -- git clone https://github.com/rhantschk-cmyk/LumenArch.git "$repo_dir"
+    run git clone https://github.com/rhantschk-cmyk/LumenArch.git "$repo_dir"
   fi
-  "$repo_dir/scripts/install-user.sh"
-  gum spin --spinner dot --title 'Updating official packages…' -- sudo pacman -Syu
-  command -v yay >/dev/null && yay -Syu
+  [[ -d "$repo_dir/.git" ]] || return
+  run "$repo_dir/scripts/install-user.sh"
+  run sudo pacman -Syu
+  command -v yay >/dev/null && run yay -Syu
   if gum confirm 'Apply changed Lumen system files and package requirements now?'; then
-    "$repo_dir/scripts/install-system.sh"
+    run "$repo_dir/scripts/install-system.sh"
   fi
-  pause
 }
 
 create_webapp() {
@@ -26,7 +38,7 @@ create_webapp() {
   local name url desktop_id desktop_file
   name=$(gum input --prompt 'Web app name: ') || return
   url=$(gum input --prompt 'URL: ' --placeholder 'https://example.org') || return
-  [[ -n "$name" && "$url" =~ ^https?://[^[:space:]]+$ ]] || { echo 'Please provide a name and an http(s) URL.'; pause; return; }
+  [[ -n "$name" && "$url" =~ ^https?://[^[:space:]]+$ ]] || { echo 'Provide a name and an HTTP(S) URL.'; pause; return; }
   desktop_id=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-')
   desktop_id=${desktop_id#-}; desktop_id=${desktop_id%-}
   [[ -n "$desktop_id" ]] || { echo 'The name must contain letters or numbers.'; pause; return; }
@@ -38,7 +50,6 @@ create_webapp() {
     printf 'Exec=firefox --new-window "%s"\n' "$url"
     printf '%s\n' 'Icon=web-browser' 'Categories=Network;WebBrowser;'
   } > "$desktop_file"
-  chmod 644 "$desktop_file"
   echo "Created $desktop_file"
   pause
 }
@@ -49,16 +60,13 @@ configure_wifi() {
   local network ssid security password
   network=$(nmcli -t -f SSID,SECURITY device wifi list --rescan yes | awk -F: 'NF && $1 != "" && !seen[$1]++ { print $1 "\t" $2 }' | gum choose --height 15) || return
   [[ -n "$network" ]] || return
-  ssid=${network%%$'\t'*}
-  security=${network#*$'\t'}
+  ssid=${network%%$'\t'*}; security=${network#*$'\t'}
   if [[ -n "$security" && "$security" != '--' ]]; then
     password=$(gum input --password --prompt "Password for $ssid: ") || return
-    nmcli device wifi connect "$ssid" password "$password"
+    run nmcli device wifi connect "$ssid" password "$password"
   else
-    nmcli device wifi connect "$ssid"
+    run nmcli device wifi connect "$ssid"
   fi
-  echo "Connected to $ssid."
-  pause
 }
 
 container_dashboard() {
@@ -69,44 +77,168 @@ container_dashboard() {
     return
   fi
   if ! systemctl is-active --quiet docker; then
-    echo 'Starting the Docker service (this is the only step that uses sudo)…'
-    sudo systemctl start docker
+    run sudo systemctl start docker
   fi
-  lazydocker || echo 'LazyDocker exited with an error. Check: docker ps'
+  command -v lazydocker >/dev/null || { echo 'LazyDocker is not installed.'; pause; return; }
+  lazydocker
   pause
 }
-install_apps() {
+
+curated_apps() {
   title
-  command -v yay >/dev/null || { echo 'The Developer profile (Yay) is not installed.'; pause; return; }
+  local selected packages=()
   selected=$(printf '%s\n' \
     'discord  • community' 'spotify  • music' 'visual-studio-code-bin  • editor' \
     'localsend-bin  • device sharing' 'bitwarden  • passwords' 'steam  • games' \
     'gimp  • images' 'inkscape  • vectors' | gum choose --no-limit --height 10) || return
   [[ -n "$selected" ]] || return
-  printf '%s\n' "$selected" | sed 's/  •.*//' | xargs -r yay -S --needed
-  pause
+  while IFS= read -r line; do packages+=("${line%%  •*}"); done <<< "$selected"
+  gum confirm "Install: ${packages[*]}?" || return
+  run lumen install "${packages[@]}"
 }
-while true; do
-  title
-  choice=$(printf '%s\n' \
-    '󰚰  Update Lumen and packages' \
-    '󰏖  Install curated applications' \
-    '󰈙  Create web app shortcut' \
-    '󰖩  Connect to Wi-Fi' \
-    '󰌌  Configure monitors (HyprMon)' \
-    '󰆼  Container dashboard (LazyDocker)' \
-    '󰋊  Clean package cache' \
-    '󰩈  System overview' \
-    '󰜺  Exit' | gum choose --height 12) || exit 0
-  case "$choice" in
-    *Update*) update ;;
-    *Install*) install_apps ;;
-    *web\ app*) create_webapp ;;
-    *Wi-Fi*) configure_wifi ;;
-    *monitors*) hyprmon ;;
-    *Container*) container_dashboard ;;
-    *Clean*) sudo paccache -r; pause ;;
-    *overview*) fastfetch; echo; btop; ;;
-    *Exit*) exit 0 ;;
-  esac
-done
+
+package_menu() {
+  while true; do
+    title
+    local choice package
+    choice=$(printf '%s\n' \
+      '󰍉  Search official repositories' \
+      '󰏗  Search AUR' \
+      '󰐆  Install package by name' \
+      '󰆴  Remove installed package' \
+      '󰋼  Package information' \
+      '󰏖  Curated applications' \
+      '󰜺  Back' | gum choose --height 12) || return
+    case "$choice" in
+      *official*)
+        package=$(gum input --prompt 'Filter (empty = all packages): ') || continue
+        package=$(lumen search --select "$package") || continue
+        gum confirm "Install $package?" && run lumen install "$package"
+        ;;
+      *AUR*)
+        package=$(gum input --prompt 'Filter (empty = all AUR packages): ') || continue
+        package=$(lumen search --aur --select "$package") || continue
+        gum confirm "Install $package?" && run lumen install "$package"
+        ;;
+      *Install*) package=$(gum input --prompt 'Package name: ') || continue; [[ -n "$package" ]] && run lumen install "$package" ;;
+      *Remove*) package=$(pacman -Qq | fzf --prompt='Remove package > ') || continue; gum confirm "Remove $package and unused dependencies?" && run lumen remove "$package" ;;
+      *information*) package=$(gum input --prompt 'Package name: ') || continue; [[ -n "$package" ]] && run lumen info "$package" ;;
+      *Curated*) curated_apps ;;
+      *Back*) return ;;
+    esac
+  done
+}
+
+appearance_menu() {
+  while true; do
+    title
+    local choice role desktop
+    choice=$(printf '%s\n' \
+      '󰖨  Use dark appearance' \
+      '󰖔  Use light appearance' \
+      '󰅚  Show default applications' \
+      '󰒓  Set default application' \
+      '󰜺  Back' | gum choose --height 10) || return
+    case "$choice" in
+      *dark*) run lumen appearance dark ;;
+      *light*) run lumen appearance light ;;
+      *Show*) run lumen default get browser; run lumen default get editor; run lumen default get file-manager ;;
+      *Set*)
+        role=$(printf '%s\n' browser editor file-manager | gum choose --prompt 'Role: ') || continue
+        desktop=$(gum input --prompt 'Desktop ID:' --placeholder 'firefox.desktop') || continue
+        [[ -n "$desktop" ]] && run lumen default set "$role" "$desktop"
+        ;;
+      *Back*) return ;;
+    esac
+  done
+}
+
+repository_menu() {
+  while true; do
+    title
+    local choice package
+    choice=$(printf '%s\n' \
+      '󰏗  Repository status' \
+      '󰆼  Sync Pacman cache now' \
+      '󰈔  Add package or archive' \
+      '󰏁  Exclude package from local mirror' \
+      '󰏂  Re-include excluded package' \
+      '󰏖  List locally available packages' \
+      '󰋺  Show local exclusions' \
+      '󰆴  Prune old archive versions' \
+      '󰅖  Show package holds' \
+      '󰜺  Back' | gum choose --height 13) || return
+    case "$choice" in
+      *status*) run lumen repo status ;;
+      *Sync*) run lumen repo sync ;;
+      *Add*) package=$(gum input --prompt 'Package name or archive path: ') || continue; [[ -n "$package" ]] && run lumen repo add "$package" ;;
+      *Exclude*) package=$(gum input --prompt 'Package to exclude: ') || continue; [[ -n "$package" ]] && run lumen repo exclude "$package" ;;
+      *Re-include*) package=$(gum input --prompt 'Package to include again: ') || continue; [[ -n "$package" ]] && run lumen repo unexclude "$package" ;;
+      *List*) run lumen repo list ;;
+      *exclusions*) run lumen repo exclusions ;;
+      *Prune*) gum confirm 'Retain only two versions per package?' && run lumen repo prune ;;
+      *holds*) run lumen package list-holds ;;
+      *Back*) return ;;
+    esac
+  done
+}
+
+system_menu() {
+  while true; do
+    title
+    local choice service
+    choice=$(printf '%s\n' \
+      '󰒲  Configure monitors (HyprMon)' \
+      '󰆼  Container dashboard (LazyDocker)' \
+      '󰖩  Connect to Wi-Fi' \
+      '󰋊  Clean package cache' \
+      '󰀻  Start or stop a service' \
+      '󰩈  System overview' \
+      '󰜺  Back' | gum choose --height 12) || return
+    case "$choice" in
+      *monitors*) hyprmon; pause ;;
+      *Container*) container_dashboard ;;
+      *Wi-Fi*) configure_wifi ;;
+      *Clean*) run sudo paccache -r ;;
+      *service*)
+        service=$(printf '%s\n' NetworkManager bluetooth docker sddm power-profiles-daemon | gum choose --prompt 'Service: ') || continue
+        choice=$(printf '%s\n' status start stop restart enable disable | gum choose --prompt 'Action: ') || continue
+        run sudo systemctl "$choice" "$service"
+        ;;
+      *overview*) fastfetch; echo; df -h /; echo; free -h; pause ;;
+      *Back*) return ;;
+    esac
+  done
+}
+
+main() {
+  while true; do
+    title
+    local choice
+    choice=$(printf '%s\n' \
+      '󰚰  Update Lumen and packages' \
+      '󰏖  Packages and applications' \
+      '󰖨  Appearance and default apps' \
+      '󰏗  Local offline repository' \
+      '󰀻  System, network, and services' \
+      '󰈙  Create web app shortcut' \
+      '󰍎  Lumen health check' \
+      '󰜺  Exit' | gum choose --height 14) || exit 0
+    case "$choice" in
+      *Update*) update_lumen ;;
+      *Packages*) package_menu ;;
+      *Appearance*) appearance_menu ;;
+      *repository*) repository_menu ;;
+      *System*) system_menu ;;
+      *web\ app*) create_webapp ;;
+      *health*) run lumen doctor ;;
+      *Exit*) exit 0 ;;
+    esac
+  done
+}
+
+if [[ "${1:-}" == --update ]]; then
+  update_lumen
+else
+  main
+fi

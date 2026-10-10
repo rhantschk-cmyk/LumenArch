@@ -135,6 +135,12 @@ The default session is Hyprland. Its configuration is ordinary Lua at
 The terminal launches Zsh. `cd` uses Zoxide (`z`), `ls` uses Eza, and `cat`
 uses Bat. Run `fastfetch` for the Lumen system card.
 
+Neovim starts with a small, normal user configuration at
+`~/.config/nvim/` that bootstraps LazyVim. Lazy.nvim owns its plugin checkout
+and performs the initial plugin installation when Neovim is first started with
+internet access; Lumen does not vendor a second plugin manager or overwrite its
+state.
+
 ## Control Center
 
 Open the terminal-based Control Center with `Super + U` or `lumenctl`. It is a
@@ -144,17 +150,70 @@ commands.
 - **Update Lumen and packages** clones or fast-forwards the official Lumen
   repository, installs updated user configuration, updates Pacman/Yay packages,
   and can apply changed system files and package requirements.
-- **Install curated applications** selects common optional software through Yay.
+- **Packages and applications** can fuzzy-search official repositories or the
+  AUR, inspect packages, remove installed packages, and install a curated set
+  of optional applications. Installation is delegated to `lumen install`, so a
+  failed package reports its error and returns to the menu instead of closing
+  the Control Center.
 - **Create web app shortcut** creates a named Firefox launcher in
   `~/.local/share/applications/` from a name and HTTPS/HTTP URL.
 - **Connect to Wi-Fi** lists visible networks with `nmcli`, prompts for a
   password when needed, and creates a normal NetworkManager connection.
-- **Configure monitors**, **LazyDocker**, cache cleanup, and system overview
-  remain available from the same menu.
+- **Appearance and default apps** applies a real GTK/portal light or dark
+  preference and assigns browser, editor, and file-manager MIME defaults.
+- **Local offline repository** mirrors downloaded Pacman archives, lets you
+  add an archive or named package, exclude an archive from the local mirror,
+  and retain a compact number of older versions.
+- **Configure monitors**, **LazyDocker**, cache cleanup, service control, and
+  system overview remain available from the same menu.
 
 LazyDocker is deliberately run as the normal user, never through `sudo`. The
 installer adds the user to the `docker` group and enables Docker; a logout and
 login is required before a newly added group becomes active.
+
+## Lumen CLI and local package archive
+
+`lumen` is the documented command-line interface behind the Control Center.
+Run `lumen help` or a command's `--help` for a concise command reference.
+
+```bash
+lumen center                         # open the terminal Control Center
+lumen update                         # update Lumen and installed packages
+lumen search --select hypr           # choose an official package with FZF
+lumen search --aur --select theme    # choose an AUR package with FZF
+lumen install <package>              # official package, then Yay fallback
+lumen appearance dark
+lumen default set browser firefox.desktop
+```
+
+Lumen's package archive has a deliberate split between settings and data:
+
+- `/etc/lumen/` contains human-readable repository settings, explicit package
+  exclusions, and update holds.
+- `/var/lib/lumen/repo/` contains downloaded package archives and the generated
+  Pacman repository database. It can grow large and is safe to rebuild from
+  Pacman's cache.
+
+The `lumen-repo-sync` Pacman hook mirrors installed or updated package archives
+into that repository. It is a normal local Pacman source, so packages can be
+installed later without re-downloading them when the archive is present.
+
+```bash
+lumen repo status
+lumen repo exclusions
+lumen repo sync
+lumen repo add firefox               # download once, retain in the local repo
+lumen repo add /path/to/package.pkg.tar.zst
+lumen repo exclude linux-firmware    # do not retain this archive locally
+lumen repo unexclude linux-firmware
+lumen repo prune                     # retain two local versions per package
+lumen package hold linux             # exclude from normal Pacman updates
+lumen package unhold linux
+```
+
+`repo exclude` controls only whether an archive is kept in Lumen's local
+offline mirror. `package hold` writes an explicit Pacman `IgnorePkg` entry and
+controls updates. The two operations are intentionally separate.
 
 ## Build in a container
 

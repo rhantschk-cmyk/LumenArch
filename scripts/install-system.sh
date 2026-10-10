@@ -29,7 +29,18 @@ sudo pacman -Syu --needed --noconfirm "${packages[@]}"
 while IFS= read -r -d '' source; do
   target="/${source#"$root_dir/system/"}"
   sudo install -Dm644 "$source" "$target"
+  [[ "$source" == */usr/local/bin/* || "$source" == */usr/lib/lumen/* ]] && sudo chmod 755 "$target"
 done < <(find "$root_dir/system" -type f -print0)
+if ! sudo grep -Fqx 'Include = /etc/pacman.conf.d/lumen-holds.conf' /etc/pacman.conf; then
+  if sudo grep -q '^LocalFileSigLevel = ' /etc/pacman.conf; then
+    sudo sed -i '/^LocalFileSigLevel = /a Include = /etc/pacman.conf.d/lumen-holds.conf' /etc/pacman.conf
+  elif sudo grep -q '^\[options\]$' /etc/pacman.conf; then
+    sudo sed -i '/^\[options\]$/a Include = /etc/pacman.conf.d/lumen-holds.conf' /etc/pacman.conf
+  else
+    echo 'Could not add Lumen package-hold configuration to /etc/pacman.conf.' >&2
+    exit 1
+  fi
+fi
 sudo systemctl enable NetworkManager.service bluetooth.service sddm.service power-profiles-daemon.service
 sudo systemctl enable docker.service
 if ! groups "$USER" | grep -qw docker; then

@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+# User-facing Lumen CLI. Privileged work is delegated to lumen-repo-sync.
+set -Eeuo pipefail
+
+# Resolves both after installation and when the script is run from this source
+# tree during validation or development.
+repo_helper="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)/usr/lib/lumen/lumen-repo-sync"
+
+help() {
+  cat <<'EOF'
+Lumen Arch command line
+
+Usage: lumen <command> [arguments]
+
+Everyday commands:
+  center                         open the Lumen Control Center
+  update                         update Lumen files and installed packages
+  doctor                         inspect common Lumen session and package health
+  appearance <dark|light>        set GTK and portal colour preference
+  default get <role>             show the default browser, editor, or file-manager
+  default set <role> <desktop>   set a .desktop application for a role
+
+Package commands:
+  search [--aur] [--select] [query]
+                                 search packages; --select returns a fuzzy choice
+  install <package> [...]        install an official package, falling back to Yay
+  remove <package> [...]         remove package(s) with Pacman
+  info <package>                 show package information
+  package hold <package>         hold a package at its current version
+  package unhold <package>       remove a Lumen-managed package hold
+  package list-holds             list packages held by Lumen
+
+Offline repository commands:
+  repo status                    show local repository state
+  repo list                      list packages available from the local repository
+  repo exclusions                list packages excluded from the local repository
+  repo sync                      mirror Pacman's archive cache locally
+  repo add <package|archive>     add an archive or fetch one official package
+  repo exclude <package>         omit a package from the local repository
+  repo unexclude <package>       include it in later repository syncs
+  repo prune                     retain two archive versions per package
+
+Run 'lumen help' to display this text. Administrative commands ask sudo only
+for the operation that requires it.
+EOF
+}
+
+package_help() {
+  cat <<'EOF'
+Usage: lumen package <command> [package]
+
+Commands:
+  hold <package>       prevent a package from being upgraded by Pacman
+  unhold <package>     remove that update hold
+  list-holds           show all Lumen-managed holds
+EOF
+}
+
+set_gtk_setting() {
+  local key="$1" value="$2" file="$3"
+  mkdir -p "$(dirname "$file")"
+  [[ -f "$file" ]] || printf '[Settings]\n' > "$file"
+  if grep -q "^${key}=" "$file"; then
+    sed -i "s|^${key}=.*|${key}=${value}|" "$file"
+  else
+    printf '%s=%s\n' "$key" "$value" >> "$file"
+  fi
+}
+
+appearance() {
+  local mode="$1" theme dark
+  case "$mode" in
+    dark) theme=adw-gtk3-dark; dark=1 ;;
+    light) theme=adw-gtk3; dark=0 ;;
+    *) echo 'Usage: lumen appearance <dark|light>' >&2; exit 2 ;;
+  esac
+  set_gtk_setting gtk-theme-name "$theme" "$HOME/.config/gtk-3.0/settings.ini"
+  set_gtk_setting gtk-theme-name "$theme" "$HOME/.config/gtk-4.0/settings.ini"
+  set_gtk_setting gtk-application-prefer-dark-theme "$dark" "$HOME/.config/gtk-3.0/settings.ini"
+  set_gtk_setting gtk-application-prefer-dark-theme "$dark" "$HOME/.config/gtk-4.0/settings.ini"
+  command -v gsettings >/dev/null && gsettings set org.gnome.desktop.interface color-scheme "prefer-$mode" || true
+  echo "Applied Lumen $mode appearance preference. Restart applications to pick it up."
+}
+
+default_app() {
+  local action="$1" role="$2" desktop="${3:-}" mime_types
+  case "$role" in
+    browser) mime_types=(x-scheme-handler/http x-scheme-handler/https text/html) ;;
+    editor) mime_types=(text/plain) ;;
+    file-manager) mime_types=(inode/directory) ;;
+    *) echo 'Roles: browser, editor, file-manager' >&2; exit 2 ;;
+  esac
+  case "$action" in
+    get) for mime in "${mime_types[@]}"; do printf '%s: %s\n' "$mime" "$(xdg-mime query default "$mime")"; done ;;
+    set)
+      [[ "$desktop" == *.desktop ]] || { echo 'Use a .desktop ID, e.g. firefox.desktop.' >&2; exit 2; }
+      for mime in "${mime_types[@]}"; do xdg-mime default "$desktop" "$mime"; done
+      echo "Set $role default to $desktop."
+      ;;
+    *) exit 2 ;;
+  esac
+}
+
+search_packages() {
+  local source=official select=false query=""
+  [[ "${1:-}" == --aur ]] && { source=aur; shift; }
+  [[ "${1:-}" == --select ]] && { select=true; shift; }
+  query="$*"
+  if [[ "$select" == true ]]; then
+    if [[ "$source" == aur ]]; then
+      command -v yay >/dev/null || { echo 'AUR search needs Yay (Developer profile).' >&2; exit 1; }
+      if [[ -n "$query" ]]; then
+        yay -Slq | rg -i --fixed-strings -- "$query" | fzf --prompt='AUR package > '
+      else
+        yay -Slq | fzf --prompt='AUR package > '
+      fi
+    else
+      if [[ -n "$query" ]]; then
+        pacman -Slq | LC_ALL=C sort -u | rg -i --fixed-strings -- "$query" | fzf --prompt='Pacman package > '
+      else
+        pacman -Slq | LC_ALL=C sort -u | fzf --prompt='Pacman package > '
+      fi
+    fi
+    return
+  fi
+  if [[ "$source" == aur ]]; then
+    command -v yay >/dev/null || { echo 'AUR search needs Yay (Developer profile).' >&2; exit 1; }
+    if [[ -n "$query" ]]; then yay -Ss "$query"; else yay -Slq | fzf --prompt='AUR package > '; fi
+  else
+    if [[ -n "$query" ]]; then pacman -Ss "$query"; else pacman -Slq | LC_ALL=C sort -u | fzf --prompt='Pacman package > '; fi
+  fi
+}
+
+install_package() {
+  local package
+  for package in "$@"; do
+    if pacman -Si "$package" >/dev/null 2>&1; then
+      sudo pacman -S --needed "$package"
+    elif command -v yay >/dev/null; then
+      yay -S --needed "$package"
+    else
+      echo "Not in configured official repositories, and Yay is unavailable: $package" >&2
+      return 1
+    fi
+  done
+}
+
+doctor() {
+  echo 'Lumen doctor'
+  command -v Hyprland >/dev/null && echo '✓ Hyprland installed' || echo '✗ Hyprland missing'
+  command -v lumenctl >/dev/null && echo '✓ Control Center installed' || echo '✗ Control Center missing'
+  command -v repo-add >/dev/null && echo '✓ Local-repository tools installed' || echo '✗ pacman-contrib missing'
+  "$repo_helper" status
+  if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+    hyprctl configerrors || true
+  else
+    echo '• Hyprland session not detected; skipping compositor configuration check.'
+  fi
+}
+
+case "${1:-help}" in
+  help|-h|--help) help ;;
+  center) exec lumenctl ;;
+  update) exec lumenctl --update ;;
+  doctor) doctor ;;
+  appearance) [[ $# -eq 2 ]] || { help >&2; exit 2; }; appearance "$2" ;;
+  default) [[ $# -ge 3 ]] || { help >&2; exit 2; }; default_app "$2" "$3" "${4:-}" ;;
+  search) shift; search_packages "$@" ;;
+  install) shift; ((${#@})) || { help >&2; exit 2; }; install_package "$@" ;;
+  remove) shift; ((${#@})) || { help >&2; exit 2; }; sudo pacman -Rns "$@" ;;
+  info) shift; (($#)) && pacman -Si "$@" || { help >&2; exit 2; } ;;
+  repo)
+    shift
+    case "${1:-}" in
+      status|list|exclusions|-h|--help|help) exec "$repo_helper" "$@" ;;
+      *) exec sudo "$repo_helper" "$@" ;;
+    esac
+    ;;
+  package)
+    shift
+    case "${1:-}" in
+      hold|unhold) exec sudo "$repo_helper" "$@" ;;
+      list-holds) exec sed -E '/^(#|$)/d' /etc/lumen/holds ;;
+      -h|--help|help|'') package_help ;;
+      *) package_help >&2; exit 2 ;;
+    esac
+    ;;
+  *) echo "Unknown Lumen command: $1" >&2; help >&2; exit 2 ;;
+esac

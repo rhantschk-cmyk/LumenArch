@@ -2,16 +2,23 @@
 # Start installed desktop applications from their .desktop entries.
 set -Eeuo pipefail
 
-declare -A desktop_ids=()
-while IFS= read -r -d '' desktop_file; do
-  grep -qx 'Type=Application' "$desktop_file" || continue
-  grep -Eq '^(NoDisplay|Hidden)=true$' "$desktop_file" && continue
-  name=$(sed -n 's/^Name=//p' "$desktop_file" | head -n1)
-  [[ -n "$name" ]] || continue
-  desktop_id=$(basename "${desktop_file%.desktop}")
-  label="$name  [$desktop_id]"
-  desktop_ids["$label"]="$desktop_id"
-done < <(find /usr/share/applications "$HOME/.local/share/applications" -maxdepth 1 -type f -name '*.desktop' -print0 2>/dev/null)
+declare -A desktop_ids=() hidden_ids=() seen_ids=()
+for applications_dir in "$HOME/.local/share/applications" /usr/share/applications; do
+  while IFS= read -r -d '' desktop_file; do
+    desktop_id=$(basename "${desktop_file%.desktop}")
+    if grep -Eq '^(NoDisplay|Hidden)=true$' "$desktop_file"; then
+      hidden_ids["$desktop_id"]=1
+      continue
+    fi
+    [[ -n "${hidden_ids[$desktop_id]:-}" || -n "${seen_ids[$desktop_id]:-}" ]] && continue
+    grep -qx 'Type=Application' "$desktop_file" || continue
+    name=$(sed -n 's/^Name=//p' "$desktop_file" | head -n1)
+    [[ -n "$name" ]] || continue
+    label="$name  [$desktop_id]"
+    desktop_ids["$label"]="$desktop_id"
+    seen_ids["$desktop_id"]=1
+  done < <(find "$applications_dir" -maxdepth 1 -type f -name '*.desktop' -print0 2>/dev/null)
+done
 
 ((${#desktop_ids[@]})) || { notify-send 'Lumen' 'No launchable desktop applications were found.'; exit 1; }
 choice=$(printf '%s\n' "${!desktop_ids[@]}" | LC_ALL=C sort | fuzzel --dmenu --prompt='Applications  ') || exit 0

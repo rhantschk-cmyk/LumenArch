@@ -1,0 +1,186 @@
+#!/usr/bin/env bash
+# Root helper for Lumen's local, offline-capable Pacman repository.
+set -Eeuo pipefail
+
+config_file=/etc/lumen/repo.conf
+exclude_file=/etc/lumen/repo-exclude
+holds_file=/etc/lumen/holds
+pacman_fragment=/etc/pacman.conf.d/lumen-local.conf
+holds_fragment=/etc/pacman.conf.d/lumen-holds.conf
+
+if [[ -r "$config_file" ]]; then
+  source "$config_file"
+else
+  # Makes --help and status useful from an unpacked source tree as well.
+  REPO_DIR=/var/lib/lumen/repo
+  CACHE_DIR=/var/cache/pacman/pkg
+  REPO_NAME=lumen-local
+fi
+repo_db="$REPO_DIR/$REPO_NAME.db.tar.gz"
+
+usage() {
+  cat <<'EOF'
+Usage: lumen-repo-sync <command> [argument]
+
+Commands:
+  --from-cache, sync       mirror Pacman's local archive cache into Lumen
+  add <package|archive>    add an archive, or download a named official package
+  exclude <package>        keep a package out of the Lumen local repository
+  unexclude <package>      allow a package into the local repository again
+  hold <package>           prevent Pacman from updating a package
+  unhold <package>         remove Lumen's update hold for a package
+  status                   show repository, exclusion, and hold information
+  list                     list archives currently offered by the repository
+  exclusions               list packages excluded from the local repository
+  prune                    retain two cached versions of packages in the repo
+EOF
+}
+
+require_root() {
+  [[ $EUID -eq 0 ]] || { echo 'This command must run as root.' >&2; exit 1; }
+}
+
+valid_package_name() {
+  [[ "$1" =~ ^[A-Za-z0-9@._+:-]+$ ]]
+}
+
+list_contains() {
+  grep -Fxq -- "$1" "$2" 2>/dev/null
+}
+
+append_unique() {
+  local value="$1" file="$2"
+  list_contains "$value" "$file" || printf '%s\n' "$value" >> "$file"
+}
+
+remove_value() {
+  local value="$1" file="$2" temporary
+  temporary=$(mktemp "${file}.XXXXXX")
+  grep -Fvx -- "$value" "$file" > "$temporary" || true
+  install -m 0644 "$temporary" "$file"
+  rm -f "$temporary"
+}
+
+package_name_from_archive() {
+  pacman -Qp --q "$1"
+}
+
+write_holds_fragment() {
+  local temporary
+  temporary=$(mktemp)
+  {
+    printf '%s\n' '# Managed by Lumen. Do not edit while a Lumen command is running.'
+    while IFS= read -r package; do
+      [[ -n "$package" && "$package" != \#* ]] && printf 'IgnorePkg = %s\n' "$package"
+    done < "$holds_file"
+  } > "$temporary"
+  install -Dm644 "$temporary" "$holds_fragment"
+  rm -f "$temporary"
+}
+
+write_repo_fragment() {
+  cat > "$pacman_fragment" <<EOF
+# Managed by Lumen. Local archives are intentionally trusted because they are
+# created from this machine's Pacman cache or explicitly added by an admin.
+[$REPO_NAME]
+SigLevel = Optional TrustAll
+Server = file://$REPO_DIR
+EOF
+}
+
+sync_repository() {
+  require_root
+  command -v repo-add >/dev/null || { echo 'repo-add is unavailable; install pacman-contrib.' >&2; exit 1; }
+  mkdir -p "$REPO_DIR"
+  chmod 0755 "$REPO_DIR"
+
+  shopt -s nullglob
+  local archive
+  for archive in "$CACHE_DIR"/*.pkg.tar.*; do
+    [[ "$archive" == *.sig ]] && continue
+    cp --reflink=auto --preserve=mode,timestamps -- "$archive" "$REPO_DIR/"
+  done
+
+  local -a included=()
+  local package
+  for archive in "$REPO_DIR"/*.pkg.tar.*; do
+    [[ "$archive" == *.sig ]] && continue
+    package=$(package_name_from_archive "$archive")
+    list_contains "$package" "$exclude_file" && continue
+    included+=("$archive")
+  done
+
+  if ((${#included[@]} == 0)); then
+    rm -f "$repo_db" "$REPO_DIR/$REPO_NAME.db" "$pacman_fragment"
+    echo 'Lumen local repository has no included archives; Pacman source disabled.'
+    return
+  fi
+
+  rm -f "$repo_db" "$REPO_DIR/$REPO_NAME.db"
+  repo-add "$repo_db" "${included[@]}"
+  ln -f "$repo_db" "$REPO_DIR/$REPO_NAME.db"
+  write_repo_fragment
+  echo "Lumen local repository updated: ${#included[@]} archive(s)."
+}
+
+add_archive_or_package() {
+  require_root
+  local input="$1"
+  if [[ -f "$input" ]]; then
+    mkdir -p "$REPO_DIR"
+    cp --reflink=auto --preserve=mode,timestamps -- "$input" "$REPO_DIR/"
+  else
+    valid_package_name "$input" || { echo "Invalid package name: $input" >&2; exit 2; }
+    pacman -Sw --noconfirm "$input"
+  fi
+  sync_repository
+}
+
+status() {
+  local archive_count=0 excluded=0 held=0
+  [[ -d "$REPO_DIR" ]] && archive_count=$(find "$REPO_DIR" -maxdepth 1 -type f -name '*.pkg.tar.*' ! -name '*.sig' | wc -l)
+  [[ -f "$exclude_file" ]] && excluded=$(grep -Evc '^(#|$)' "$exclude_file" || true)
+  [[ -f "$holds_file" ]] && held=$(grep -Evc '^(#|$)' "$holds_file" || true)
+  printf 'Repository: %s\nArchives: %s\nExcluded: %s\nHeld updates: %s\n' "$REPO_DIR" "$archive_count" "$excluded" "$held"
+  [[ -f "$pacman_fragment" ]] && echo 'Pacman source: enabled' || echo 'Pacman source: disabled until the first archive is synced'
+}
+
+list_archives() {
+  if [[ ! -d "$REPO_DIR" ]]; then
+    echo 'No local repository has been created yet.'
+    return
+  fi
+  shopt -s nullglob
+  local archive
+  for archive in "$REPO_DIR"/*.pkg.tar.*; do
+    [[ "$archive" == *.sig ]] && continue
+    printf '%s\n' "$(package_name_from_archive "$archive")"
+  done | LC_ALL=C sort -u
+}
+
+list_exclusions() {
+  [[ -f "$exclude_file" ]] || return
+  sed -E '/^(#|$)/d' "$exclude_file"
+}
+
+case "${1:-}" in
+  --from-cache|sync) sync_repository ;;
+  add) [[ $# -eq 2 ]] || { usage >&2; exit 2; }; add_archive_or_package "$2" ;;
+  exclude|unexclude|hold|unhold)
+    [[ $# -eq 2 ]] || { usage >&2; exit 2; }
+    valid_package_name "$2" || { echo "Invalid package name: $2" >&2; exit 2; }
+    require_root
+    case "$1" in
+      exclude) append_unique "$2" "$exclude_file"; sync_repository ;;
+      unexclude) remove_value "$2" "$exclude_file"; sync_repository ;;
+      hold) append_unique "$2" "$holds_file"; write_holds_fragment ;;
+      unhold) remove_value "$2" "$holds_file"; write_holds_fragment ;;
+    esac
+    ;;
+  prune) require_root; paccache -rk2 -c "$REPO_DIR"; sync_repository ;;
+  status) status ;;
+  list) list_archives ;;
+  exclusions) list_exclusions ;;
+  -h|--help|help|'') usage ;;
+  *) echo "Unknown repository command: $1" >&2; usage >&2; exit 2 ;;
+esac
