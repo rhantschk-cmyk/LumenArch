@@ -198,6 +198,41 @@ The `lumen-repo-sync` Pacman hook mirrors installed or updated package archives
 into that repository. It is a normal local Pacman source, so packages can be
 installed later without re-downloading them when the archive is present.
 
+### How the local repository works
+
+The local repository is intentionally empty on a fresh installation: the ISO's
+archives stay on the installation medium instead of silently consuming disk
+space on the new system. Create the initial local database from Pacman's cache
+once:
+
+```bash
+lumen repo status
+lumen repo sync
+lumen repo list
+```
+
+You do **not** need to run `lumen repo add` for every package. After the first
+sync, each normal Pacman install or upgrade downloads an archive into Pacman's
+cache and Lumen's post-transaction hook automatically mirrors it into
+`/var/lib/lumen/repo/`. It is then available for a future local/offline Pacman
+installation. Run `lumen repo sync` again only to import archives that were
+already in the cache or after manually changing that cache.
+
+`lumen repo add` is for deliberate preloading: it downloads an official package
+without installing it, or accepts the path to an existing archive. For example,
+preload Firefox before travelling, or retain an AUR package that Yay has
+already built:
+
+```bash
+lumen repo add firefox
+lumen repo add /path/to/custom-package.pkg.tar.zst
+```
+
+If the initial sync reports no archives, the system's Pacman cache is empty.
+That is valid; install or add a package while online to seed the repository.
+Use `lumen repo prune` periodically to retain two archive versions per package
+instead of allowing the local offline archive to grow without limit.
+
 ```bash
 lumen repo status
 lumen repo exclusions
