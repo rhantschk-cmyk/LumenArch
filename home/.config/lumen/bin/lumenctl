@@ -105,6 +105,7 @@ package_menu() {
       '󰍉  Search official repositories' \
       '󰏗  Search AUR' \
       '󰐆  Install package by name' \
+      '󰆍  Enter temporary package shell' \
       '󰆴  Remove installed package' \
       '󰋼  Package information' \
       '󰏖  Curated applications' \
@@ -121,6 +122,7 @@ package_menu() {
         gum confirm "Install $package?" && run lumen install "$package"
         ;;
       *Install*) package=$(gum input --prompt 'Package name: ') || continue; [[ -n "$package" ]] && run lumen install "$package" ;;
+      *temporary*) package=$(gum input --prompt 'Official package name: ') || continue; [[ -n "$package" ]] && run lumen shell "$package" ;;
       *Remove*) package=$(pacman -Qq | fzf --prompt='Remove package > ') || continue; gum confirm "Remove $package and unused dependencies?" && run lumen remove "$package" ;;
       *information*) package=$(gum input --prompt 'Package name: ') || continue; [[ -n "$package" ]] && run lumen info "$package" ;;
       *Curated*) curated_apps ;;

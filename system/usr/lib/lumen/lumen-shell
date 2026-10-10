@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# Build and enter an ephemeral package environment without modifying the host.
+set -Eeuo pipefail
+
+config_file=/etc/lumen/repo.conf
+repo_sync=/usr/lib/lumen/lumen-repo-sync
+shell_root=''
+temporary_config=''
+temporary_db=''
+
+if [[ -r "$config_file" ]]; then
+  source "$config_file"
+else
+  REPO_DIR=/var/lib/lumen/repo
+fi
+: "${REPO_NAME:=lumen-local}"
+
+usage() {
+  cat <<'EOF'
+Usage: lumen-shell <official-package>
+
+Create a temporary, isolated command-line environment containing an official
+Arch package. The host system is never modified. On exit the environment is
+deleted; downloaded package archives remain in Lumen's local repository.
+
+If the package closure is already local, no network is used. Otherwise Lumen
+downloads the closure into its local repository before creating the shell.
+EOF
+}
+
+valid_package_name() {
+  [[ "$1" =~ ^[A-Za-z0-9@._+:-]+$ ]]
+}
+
+cleanup() {
+  if [[ -n "$shell_root" && "$shell_root" == /var/tmp/lumen-shell.* && -d "$shell_root" ]]; then
+    rm -rf -- "$shell_root"
+  fi
+  if [[ -n "$temporary_config" && -f "$temporary_config" ]]; then
+    rm -f -- "$temporary_config"
+  fi
+  if [[ -n "$temporary_db" && "$temporary_db" == /var/tmp/lumen-shell-db.* && -d "$temporary_db" ]]; then
+    rm -rf -- "$temporary_db"
+  fi
+}
+trap cleanup EXIT INT TERM
+
+require_root() {
+  [[ $EUID -eq 0 ]] || { echo 'lumen-shell must be invoked through sudo.' >&2; exit 1; }
+}
+
+write_local_config() {
+  temporary_config=$(mktemp /var/tmp/lumen-shell-pacman.XXXXXX)
+  cat > "$temporary_config" <<EOF
+[options]
+Architecture = auto
+SigLevel = Required DatabaseOptional
+LocalFileSigLevel = Optional
+
+[$REPO_NAME]
+SigLevel = Optional TrustAll
+Server = file://$REPO_DIR
+EOF
+}
+
+download_closure() {
+  echo 'The local repository is missing part of this package closure.'
+  echo 'Downloading the required official archives into the Lumen repository…'
+  temporary_db=$(mktemp -d /var/tmp/lumen-shell-db.XXXXXX)
+  mkdir -p "$REPO_DIR"
+  pacman -Syyw --noconfirm --dbpath "$temporary_db" --cachedir "$REPO_DIR" bash "$package"
+  rm -rf -- "$temporary_db"
+  temporary_db=''
+  "$repo_sync" sync
+}
+
+bootstrap_environment() {
+  shell_root=$(mktemp -d /var/tmp/lumen-shell.XXXXXX)
+  if pacstrap -G -C "$temporary_config" "$shell_root" bash "$package"; then
+    return
+  fi
+
+  rm -rf -- "$shell_root"
+  shell_root=''
+  download_closure
+  shell_root=$(mktemp -d /var/tmp/lumen-shell.XXXXXX)
+  pacstrap -G -C "$temporary_config" "$shell_root" bash "$package"
+}
+
+case "${1:-}" in
+  -h|--help|help) usage; exit 0 ;;
+esac
+
+require_root
+[[ $# -eq 1 ]] || { usage >&2; exit 2; }
+package="$1"
+valid_package_name "$package" || { echo "Invalid package name: $package" >&2; exit 2; }
+command -v pacstrap >/dev/null || { echo 'pacstrap is unavailable; install arch-install-scripts.' >&2; exit 1; }
+command -v systemd-nspawn >/dev/null || { echo 'systemd-nspawn is unavailable.' >&2; exit 1; }
+[[ -x "$repo_sync" ]] || { echo 'Lumen repository helper is unavailable.' >&2; exit 1; }
+
+write_local_config
+bootstrap_environment
+{
+  printf "PS1='(lumen:%s) " "$package"
+  cat <<'EOF'
+\u@\h:\w\$ '
+EOF
+} > "$shell_root/root/.bashrc"
+
+echo "Entering temporary Lumen shell for: $package"
+echo 'Run exit to remove the environment. The host system is unchanged.'
+systemd-nspawn --directory="$shell_root" --register=no --setenv="TERM=${TERM:-xterm-256color}" /usr/bin/bash -l

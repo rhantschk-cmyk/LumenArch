@@ -36,6 +36,7 @@ Everyday commands:
   center                         open the Lumen Control Center
   update                         update Lumen files and installed packages
   doctor                         inspect common Lumen session and package health
+  shell <package>                enter a temporary CLI environment for a package
   appearance <dark|light>        set GTK and portal colour preference
   default get <role>             show the default browser, editor, or file-manager
   default set <role> <desktop>   set a .desktop application for a role
@@ -194,6 +195,11 @@ case "${1:-help}" in
   install) shift; ((${#@})) || { help >&2; exit 2; }; install_package "$@" ;;
   remove) shift; ((${#@})) || { help >&2; exit 2; }; sudo pacman -Rns "$@" ;;
   info) shift; (($#)) && pacman -Si "$@" || { help >&2; exit 2; } ;;
+  shell)
+    shift
+    [[ $# -eq 1 ]] || { echo 'Usage: lumen shell <official-package>' >&2; exit 2; }
+    exec sudo /usr/lib/lumen/lumen-shell "$1"
+    ;;
   repo)
     shift
     case "${1:-}" in

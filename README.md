@@ -198,6 +198,7 @@ lumen search --aur --select theme    # choose an AUR package with FZF
 lumen install <package>              # official package, then Yay fallback
 lumen appearance dark
 lumen default set browser firefox.desktop
+lumen shell jq                       # temporary CLI environment; exit removes it
 ```
 
 Lumen's package archive has a deliberate split between settings and data:
@@ -263,6 +264,27 @@ lumen package unhold linux
 `repo exclude` controls only whether an archive is kept in Lumen's local
 offline mirror. `package hold` writes an explicit Pacman `IgnorePkg` entry and
 controls updates. The two operations are intentionally separate.
+
+### Temporary package shells
+
+`lumen shell <package>` provides a disposable, command-line package environment
+similar in spirit to `nix-shell`, without installing that package on the host
+system. It starts an isolated Arch root using only the package archives stored
+by Lumen. Leaving with `exit` deletes the environment completely.
+
+```bash
+lumen repo add jq        # optional: preload a package while online
+lumen shell jq
+# (lumen:jq) root@lumen:/# jq --version
+# (lumen:jq) root@lumen:/# exit
+```
+
+If the package and all of its dependencies are already in the local archive,
+the shell starts fully offline. When something is missing, Lumen downloads the
+official package closure into `/var/lib/lumen/repo/` first, but never installs
+it on the host. Temporary shells deliberately target command-line and
+development tools; graphical applications are not forwarded into the host
+Wayland session.
 
 ## Build in a container
 
