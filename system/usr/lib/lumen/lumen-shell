@@ -91,6 +91,10 @@ bootstrap_environment() {
   install -d -m 0700 /run/lumen-shell
   shell_root=$(mktemp -d /run/lumen-shell/root.XXXXXX)
   if pacstrap -G -C "$temporary_config" "$shell_root" bash coreutils vim "$package"; then
+    # mktemp creates the container root as 0700. The workspace mode runs the
+    # payload as the invoking user, who otherwise cannot traverse '/' to reach
+    # /usr/bin/bash after nspawn switches UID.
+    chmod 755 "$shell_root"
     return
   fi
 
@@ -99,6 +103,7 @@ bootstrap_environment() {
   download_closure
   shell_root=$(mktemp -d /run/lumen-shell/root.XXXXXX)
   pacstrap -G -C "$temporary_config" "$shell_root" bash coreutils vim "$package"
+  chmod 755 "$shell_root"
 }
 
 prepare_workspace_user() {
@@ -155,9 +160,9 @@ echo "Entering temporary Lumen shell for: $package"
 echo 'Run exit to remove the environment. Host packages are unchanged.'
 if [[ -n "$workspace_dir" ]]; then
   echo "Host directory mounted at /workspace: $workspace_dir"
-  systemd-nspawn --directory="$shell_root" --register=no --user="$shell_uid" \
-    --bind="$workspace_dir:/workspace" --setenv="TERM=${TERM:-xterm-256color}" \
-    /usr/bin/bash -c 'cd /workspace && exec /usr/bin/bash -l'
+  systemd-nspawn --directory="$shell_root" --register=no --uid="$shell_uid" \
+    --chdir=/workspace --bind="$workspace_dir:/workspace" \
+    --setenv="TERM=${TERM:-xterm-256color}" /usr/bin/bash -l
 else
   systemd-nspawn --directory="$shell_root" --register=no --setenv="TERM=${TERM:-xterm-256color}" /usr/bin/bash -l
 fi
