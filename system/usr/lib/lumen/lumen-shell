@@ -35,8 +35,9 @@ deleted; downloaded package archives remain in Lumen's local repository.
 
 --dir DIRECTORY mounts a host directory read-write at /workspace and starts
 the shell there. Changes to files below /workspace are changes to that host
-directory. The shell runs with the invoking user's UID and GID, so edited
-files retain normal ownership.
+directory. If omitted, DIRECTORY defaults to the current directory (`.`). The
+shell runs with the invoking user's UID and GID, so edited files retain normal
+ownership.
 
 If the package closure is already local, no network is used. Otherwise Lumen
 downloads the closure into its local repository before creating the shell.
@@ -206,6 +207,12 @@ done
 for package in "${packages[@]}"; do
   valid_package_name "$package" || { echo "Invalid package name: $package" >&2; exit 2; }
 done
+# A normal shell always has a workspace.  This makes `lumen shell PACKAGE`
+# equivalent to `lumen shell PACKAGE --dir .` and keeps host file ownership
+# consistent for all interactive environments.
+if [[ -z "$workspace_dir" ]]; then
+  workspace_dir=$(realpath -e -- .)
+fi
 [[ "$prepare_only" == false || -z "$command_to_run" ]] || { echo '--prepare and --command cannot be combined.' >&2; exit 2; }
 [[ -z "$command_to_run" || -n "$workspace_dir" ]] || { echo '--command requires --dir.' >&2; exit 2; }
 command -v pacstrap >/dev/null || { echo 'pacstrap is unavailable; install arch-install-scripts.' >&2; exit 1; }
