@@ -50,6 +50,7 @@ grep -q -- '--bind="$workspace_dir:/workspace"' "$root_dir/system/usr/lib/lumen/
 grep -q '/run/lumen-shell/root' "$root_dir/system/usr/lib/lumen/lumen-shell"
 grep -q -- '--uid="$shell_uid"' "$root_dir/system/usr/lib/lumen/lumen-shell"
 grep -q -- '--offline-only' "$root_dir/system/usr/lib/lumen/lumen-shell"
+grep -q '\[\[ \$# -ge 2 && -z "\$workspace_dir" \]\]' "$root_dir/system/usr/lib/lumen/lumen-shell"
 ! grep -q -- '--user="$shell_uid"' "$root_dir/system/usr/lib/lumen/lumen-shell"
 grep -q 'chmod 755 "$shell_root"' "$root_dir/system/usr/lib/lumen/lumen-shell"
 grep -q -- 'shell <package> \[--dir path\]' "$root_dir/system/usr/local/bin/lumen"

@@ -156,18 +156,18 @@ while (($#)); do
       shift 2
       ;;
     --dir)
-      [[ $# -eq 2 && -z "$workspace_dir" ]] || { usage >&2; exit 2; }
+      [[ $# -ge 2 && -z "$workspace_dir" ]] || { usage >&2; exit 2; }
       workspace_dir=$(realpath -e -- "$2")
       [[ -d "$workspace_dir" ]] || { echo "Not a directory: $2" >&2; exit 2; }
       shift 2
       ;;
     --command)
-      [[ $# -eq 2 && -z "$command_to_run" ]] || { usage >&2; exit 2; }
+      [[ $# -ge 2 && -z "$command_to_run" ]] || { usage >&2; exit 2; }
       command_to_run="$2"
       shift 2
       ;;
     --lock-file)
-      [[ $# -eq 2 && -z "$lock_file" ]] || { usage >&2; exit 2; }
+      [[ $# -ge 2 && -z "$lock_file" ]] || { usage >&2; exit 2; }
       lock_file="$2"
       shift 2
       ;;

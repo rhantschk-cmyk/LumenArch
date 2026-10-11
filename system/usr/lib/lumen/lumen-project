@@ -489,4 +489,7 @@ def main(arguments):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    try:
+        main(sys.argv[1:])
+    except subprocess.CalledProcessError as exc:
+        die(f"underlying command failed (exit {exc.returncode})", exc.returncode)
