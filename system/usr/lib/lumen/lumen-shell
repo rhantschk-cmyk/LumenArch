@@ -135,7 +135,9 @@ bootstrap_environment() {
 }
 
 prepare_workspace_user() {
-  [[ -n "$workspace_dir" ]] || return
+  # No workspace is a normal shell invocation, not an error.  An implicit
+  # `return` here preserves the failed test status and trips `set -e`.
+  [[ -n "$workspace_dir" ]] || return 0
   local invoking_user="${SUDO_USER:-}"
   [[ -n "$invoking_user" && "$invoking_user" != root ]] || {
     echo 'A workspace shell must be launched through sudo by a regular user.' >&2
