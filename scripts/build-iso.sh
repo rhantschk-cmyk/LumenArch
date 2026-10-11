@@ -26,6 +26,23 @@ stage_from_container_cache() {
   ln -f "$stage_repo/$(basename "$package_archive")" "$package_cache/"
 }
 
+# Mirrors occasionally stall briefly while transferring the very large firmware
+# archives. Pacman's default low-speed timeout turns that transient condition
+# into a failed ISO build. Keep partial archives in the persistent cache and
+# retry the network-facing transaction a few times before giving up.
+retry_network() {
+  local attempt=1 max_attempts=3
+  until "$@"; do
+    if ((attempt >= max_attempts)); then
+      echo "Network transaction failed after $attempt attempts: $*" >&2
+      return 1
+    fi
+    echo "Network transaction failed; retrying ($attempt/$max_attempts)…" >&2
+    sleep "$attempt"
+    ((attempt++))
+  done
+}
+
 # Arch normally retains an epoch in package archive names, while older mirrors
 # and some package tooling may omit it.  Accept both forms.  More importantly,
 # pacstrap can satisfy a package from the build container without leaving an
@@ -52,7 +69,7 @@ stage_installed_package() {
   fi
 
   echo "Downloading exact archive for $package_name $package_version"
-  pacman -Sw --noconfirm --config "$offline_conf" "$package_name=$package_version"
+  retry_network pacman -Sw --noconfirm --config "$offline_conf" "$package_name=$package_version"
   package_archive_matches "$stage_repo" "$package_name" "$package_version"
   ((${#PACKAGE_MATCHES[@]})) || {
     echo "Offline repository is missing $package_name $package_version after download" >&2
@@ -147,7 +164,7 @@ offline_conf="$(mktemp)"
 # Steam is part of the default Gaming profile.  Arch container images commonly
 # ship multilib commented out; append an explicit enabled section instead of
 # relying on the exact formatting of the image's pacman.conf.
-sed "/^\[options\]/a CacheDir = $stage_repo" /etc/pacman.conf > "$offline_conf"
+sed "/^\[options\]/a CacheDir = $stage_repo\nParallelDownloads = 5\nDisableDownloadTimeout" /etc/pacman.conf > "$offline_conf"
 if ! grep -qx '\[multilib\]' "$offline_conf"; then
   cat >> "$offline_conf" <<'EOF'
 
@@ -158,8 +175,8 @@ fi
 # pacman -Sw below may need an archive that pacstrap satisfied from the build
 # container.  Refresh this exact configuration once so its newly enabled
 # multilib repository has a local database as well.
-pacman -Sy --noconfirm --config "$offline_conf"
-pacstrap -K -C "$offline_conf" "$offline_root" "${offline_packages[@]}"
+retry_network pacman -Sy --noconfirm --config "$offline_conf"
+retry_network pacstrap -K -C "$offline_conf" "$offline_root" "${offline_packages[@]}"
 
 # pacstrap may use the build container's normal pacman cache even when a
 # CacheDir is supplied.  Use the target's local package database as the source
@@ -205,7 +222,7 @@ ln -f "$stage_repo/lumen-offline.db.tar.gz" "$stage_repo/lumen-offline.db"
 # more against the local repository and stage that exact closure as well.
 printf '\n[lumen-offline]\nSigLevel = Optional TrustAll\nServer = file://%s\n' "$stage_repo" >> "$offline_conf"
 complete_root="$(mktemp -d)"
-pacstrap -K -C "$offline_conf" "$complete_root" "${offline_packages[@]}" "${aur_packages[@]}"
+retry_network pacstrap -K -C "$offline_conf" "$complete_root" "${offline_packages[@]}" "${aur_packages[@]}"
 while IFS=' ' read -r package_name package_version; do
   stage_installed_package "$package_name" "$package_version"
 done < <(pacman -Q --root "$complete_root")

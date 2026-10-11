@@ -12,6 +12,8 @@ while IFS= read -r package; do
   [[ "$package" =~ ^[a-z0-9@._+:-]+$ ]] || { echo "Invalid package: $package" >&2; exit 1; }
 done < <(find "$root_dir/profiles" -type f \( -name 'packages.pacman' -o -name 'packages.aur' \) -print0 | xargs -0 sed -E '/^($|#)/d')
 grep -qx 'seatd' "$root_dir/profiles/installer/packages.pacman"
+grep -q 'retry_network()' "$root_dir/scripts/build-iso.sh"
+grep -q 'DisableDownloadTimeout' "$root_dir/scripts/build-iso.sh"
 ! rg -q 'archinstall|bios\.syslinux' "$root_dir/iso"
 test -f "$root_dir/offline/target-pacman.conf"
 grep -q 'LocalFileSigLevel = Optional' "$root_dir/offline/target-pacman.conf"
