@@ -65,6 +65,12 @@ package_name_from_archive() {
   pacman -Qp -q "$1"
 }
 
+local_sync_database() {
+  local database_path
+  database_path=$(pacman-conf DBPath 2>/dev/null || printf '/var/lib/pacman')
+  printf '%s/sync/%s.db\n' "${database_path%/}" "$REPO_NAME"
+}
+
 write_holds_fragment() {
   local temporary
   temporary=$(mktemp)
@@ -106,6 +112,8 @@ sync_repository() {
   command -v repo-add >/dev/null || { echo 'repo-add is unavailable; install pacman-contrib.' >&2; exit 1; }
   mkdir -p "$REPO_DIR"
   chmod 0755 "$REPO_DIR"
+  local sync_database
+  sync_database=$(local_sync_database)
 
   shopt -s nullglob
   local archive package
@@ -128,7 +136,7 @@ sync_repository() {
   done
 
   if ((${#included[@]} == 0)); then
-    rm -f "$repo_db" "$REPO_DIR/$REPO_NAME.db" "$pacman_fragment"
+    rm -f "$repo_db" "$REPO_DIR/$REPO_NAME.db" "$pacman_fragment" "$sync_database"
     echo 'Lumen local repository has no included archives; Pacman source disabled.'
     return
   fi
@@ -138,6 +146,10 @@ sync_repository() {
   ln -f "$repo_db" "$REPO_DIR/$REPO_NAME.db"
   write_repo_fragment
   ensure_pacman_source_is_included
+  # Pacman does not automatically refresh a file:// repository for every -S
+  # request. Keeping its local sync database in step with repo-add prevents a
+  # just-excluded archive from being selected from stale metadata.
+  install -Dm644 "$REPO_DIR/$REPO_NAME.db" "$sync_database"
   echo "Lumen local repository updated: ${#included[@]} archive(s)."
 }
 

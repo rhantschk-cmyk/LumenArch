@@ -274,6 +274,10 @@ lumen package unhold linux
 offline mirror. `package hold` writes an explicit Pacman `IgnorePkg` entry and
 controls updates. The two operations are intentionally separate.
 
+`lumen repo unexclude <package>` permits the package to be mirrored again, but
+does not recreate an archive that was removed by `exclude`. Run `lumen repo add
+<package>` (or install/update the package normally) to fetch it again.
+
 ### Temporary package shells
 
 > **Beta feature:** Temporary package shells are currently intended for
