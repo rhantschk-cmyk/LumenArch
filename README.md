@@ -281,7 +281,9 @@ controls updates. The two operations are intentionally separate.
 `lumen shell <package>` provides a disposable, command-line package environment
 similar in spirit to `nix-shell`, without installing that package on the host
 system. It starts an isolated Arch root using only the package archives stored
-by Lumen. Leaving with `exit` deletes the environment completely.
+by Lumen. Every shell includes Bash, Coreutils (`cat`, `ls`, `mkdir`, …) and
+Vim in addition to the requested package. Leaving with `exit` deletes the
+environment completely.
 
 ```bash
 lumen repo add jq        # optional: preload a package while online
@@ -289,6 +291,22 @@ lumen shell jq
 # (lumen:jq) root@lumen:/# jq --version
 # (lumen:jq) root@lumen:/# exit
 ```
+
+For a project shell, mount a directory with `--dir`. The shell starts in
+`/workspace`; files from that directory are available there and changes are
+written straight back to the host with your normal user ownership:
+
+```bash
+cd ~/code/my-rust-project
+lumen shell cargo --dir .
+# /workspace $ cargo build
+# /workspace $ vim src/main.rs
+```
+
+Only the selected directory is shared. The rest of the shell remains
+ephemeral, and no requested package is installed on the host. Treat the
+workspace as normal host data: deleting or editing it in the shell changes it
+for real.
 
 If the package and all of its dependencies are already in the local archive,
 the shell starts fully offline. When something is missing, Lumen downloads the

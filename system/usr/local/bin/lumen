@@ -36,7 +36,7 @@ Everyday commands:
   center                         open the Lumen Control Center
   update                         update Lumen files and installed packages
   doctor                         inspect common Lumen session and package health
-  shell <package>                enter a temporary CLI environment for a package
+  shell <package> [--dir path]   enter a temporary CLI environment; optionally mount a work directory
   appearance <dark|light>        set GTK and portal colour preference
   default get <role>             show the default browser, editor, or file-manager
   default set <role> <desktop>   set a .desktop application for a role
@@ -197,7 +197,15 @@ case "${1:-help}" in
   info) shift; (($#)) && pacman -Si "$@" || { help >&2; exit 2; } ;;
   shell)
     shift
-    [[ $# -eq 1 ]] || { echo 'Usage: lumen shell <official-package>' >&2; exit 2; }
+    [[ $# -eq 1 || ( $# -eq 3 && "$2" == --dir ) ]] || {
+      echo 'Usage: lumen shell <official-package> [--dir <directory>]' >&2
+      exit 2
+    }
+    if [[ $# -eq 3 ]]; then
+      workspace=$(realpath -e -- "$3")
+      [[ -d "$workspace" ]] || { echo "Not a directory: $3" >&2; exit 2; }
+      exec sudo /usr/lib/lumen/lumen-shell "$1" --dir "$workspace"
+    fi
     exec sudo /usr/lib/lumen/lumen-shell "$1"
     ;;
   repo)

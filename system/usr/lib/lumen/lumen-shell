@@ -7,6 +7,9 @@ repo_sync=/usr/lib/lumen/lumen-repo-sync
 shell_root=''
 temporary_config=''
 temporary_db=''
+workspace_dir=''
+shell_uid=''
+shell_gid=''
 
 if [[ -r "$config_file" ]]; then
   source "$config_file"
@@ -17,11 +20,16 @@ fi
 
 usage() {
   cat <<'EOF'
-Usage: lumen-shell <official-package>
+Usage: lumen-shell <official-package> [--dir <directory>]
 
 Create a temporary, isolated command-line environment containing an official
-Arch package. The host system is never modified. On exit the environment is
+Arch package. Host packages are never modified. On exit the environment is
 deleted; downloaded package archives remain in Lumen's local repository.
+
+--dir DIRECTORY mounts a host directory read-write at /workspace and starts
+the shell there. Changes to files below /workspace are changes to that host
+directory. The shell runs with the invoking user's UID and GID, so edited
+files retain normal ownership.
 
 If the package closure is already local, no network is used. Otherwise Lumen
 downloads the closure into its local repository before creating the shell.
@@ -68,7 +76,8 @@ download_closure() {
   echo 'Downloading the required official archives into the Lumen repository…'
   temporary_db=$(mktemp -d /var/tmp/lumen-shell-db.XXXXXX)
   mkdir -p "$REPO_DIR"
-  pacman -Syyw --noconfirm --dbpath "$temporary_db" --cachedir "$REPO_DIR" bash "$package"
+  pacman -Syyw --noconfirm --dbpath "$temporary_db" --cachedir "$REPO_DIR" \
+    bash coreutils vim "$package"
   rm -rf -- "$temporary_db"
   temporary_db=''
   "$repo_sync" sync
@@ -76,7 +85,7 @@ download_closure() {
 
 bootstrap_environment() {
   shell_root=$(mktemp -d /var/tmp/lumen-shell.XXXXXX)
-  if pacstrap -G -C "$temporary_config" "$shell_root" bash "$package"; then
+  if pacstrap -G -C "$temporary_config" "$shell_root" bash coreutils vim "$package"; then
     return
   fi
 
@@ -84,7 +93,23 @@ bootstrap_environment() {
   shell_root=''
   download_closure
   shell_root=$(mktemp -d /var/tmp/lumen-shell.XXXXXX)
-  pacstrap -G -C "$temporary_config" "$shell_root" bash "$package"
+  pacstrap -G -C "$temporary_config" "$shell_root" bash coreutils vim "$package"
+}
+
+prepare_workspace_user() {
+  [[ -n "$workspace_dir" ]] || return
+  local invoking_user="${SUDO_USER:-}"
+  [[ -n "$invoking_user" && "$invoking_user" != root ]] || {
+    echo 'A workspace shell must be launched through sudo by a regular user.' >&2
+    exit 1
+  }
+  shell_uid=$(id -u "$invoking_user")
+  shell_gid=$(id -g "$invoking_user")
+  install -d -m 0755 "$shell_root/home/lumen"
+  install -d -m 0755 "$shell_root/workspace"
+  chown "$shell_uid:$shell_gid" "$shell_root/home/lumen"
+  printf 'lumen:x:%s:%s:Lumen shell user:/home/lumen:/bin/bash\n' "$shell_uid" "$shell_gid" >> "$shell_root/etc/passwd"
+  printf 'lumen:x:%s:\n' "$shell_gid" >> "$shell_root/etc/group"
 }
 
 case "${1:-}" in
@@ -92,8 +117,20 @@ case "${1:-}" in
 esac
 
 require_root
-[[ $# -eq 1 ]] || { usage >&2; exit 2; }
+[[ $# -ge 1 ]] || { usage >&2; exit 2; }
 package="$1"
+shift
+while (($#)); do
+  case "$1" in
+    --dir)
+      [[ $# -eq 2 && -z "$workspace_dir" ]] || { usage >&2; exit 2; }
+      workspace_dir=$(realpath -e -- "$2")
+      [[ -d "$workspace_dir" ]] || { echo "Not a directory: $2" >&2; exit 2; }
+      shift 2
+      ;;
+    *) usage >&2; exit 2 ;;
+  esac
+done
 valid_package_name "$package" || { echo "Invalid package name: $package" >&2; exit 2; }
 command -v pacstrap >/dev/null || { echo 'pacstrap is unavailable; install arch-install-scripts.' >&2; exit 1; }
 command -v systemd-nspawn >/dev/null || { echo 'systemd-nspawn is unavailable.' >&2; exit 1; }
@@ -101,6 +138,7 @@ command -v systemd-nspawn >/dev/null || { echo 'systemd-nspawn is unavailable.' 
 
 write_local_config
 bootstrap_environment
+prepare_workspace_user
 {
   printf "PS1='(lumen:%s) " "$package"
   cat <<'EOF'
@@ -109,5 +147,12 @@ EOF
 } > "$shell_root/root/.bashrc"
 
 echo "Entering temporary Lumen shell for: $package"
-echo 'Run exit to remove the environment. The host system is unchanged.'
-systemd-nspawn --directory="$shell_root" --register=no --setenv="TERM=${TERM:-xterm-256color}" /usr/bin/bash -l
+echo 'Run exit to remove the environment. Host packages are unchanged.'
+if [[ -n "$workspace_dir" ]]; then
+  echo "Host directory mounted at /workspace: $workspace_dir"
+  systemd-nspawn --directory="$shell_root" --register=no --user="$shell_uid" \
+    --bind="$workspace_dir:/workspace" --setenv="TERM=${TERM:-xterm-256color}" \
+    /usr/bin/bash -c 'cd /workspace && exec /usr/bin/bash -l'
+else
+  systemd-nspawn --directory="$shell_root" --register=no --setenv="TERM=${TERM:-xterm-256color}" /usr/bin/bash -l
+fi
