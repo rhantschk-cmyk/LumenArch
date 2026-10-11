@@ -12,7 +12,9 @@ disk=$(jq -r .disk "$config")
 hostname=$(jq -r '.hostname // "lumen"' "$config")
 keymap=$(jq -r '.keymap // "de"' "$config")
 filesystem=$(jq -r '.filesystem // "ext4"' "$config")
-encryption=$(jq -r '.encryption // true' "$config")
+# jq's `//` also falls back for the Boolean value false.  Preserve an explicit
+# unchecked installer checkbox and default only when older config files omit it.
+encryption=$(jq -r 'if has("encryption") then .encryption else true end' "$config")
 encryption_password=$(jq -r '.encryption_password // empty' "$config")
 mapfile -t requested_profiles < <(jq -r '.profiles[]?' "$config")
 valid_profiles=(base desktop developer creator gaming)
