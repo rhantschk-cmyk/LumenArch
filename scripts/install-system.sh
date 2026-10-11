@@ -21,9 +21,9 @@ if ! command -v pacman >/dev/null; then
 fi
 
 mapfile -t packages < <(sed -E '/^($|#)/d' "${package_files[@]}" | awk '!seen[$0]++')
-printf 'Lumen will install %s official packages and enable desktop services.\n' "${#packages[@]}"
-read -r -p 'Continue? [y/N] ' answer
-[[ "$answer" =~ ^[Yy]$ ]] || { echo 'Cancelled.'; exit 0; }
+printf 'Lumen wants to update %s official packages and system components.\n' "${#packages[@]}"
+read -r -p 'Continue? [Y/n] ' answer
+[[ -z "$answer" || "$answer" =~ ^[Yy]$ ]] || { echo 'Cancelled.'; exit 0; }
 
 sudo pacman -Syu --needed --noconfirm "${packages[@]}"
 while IFS= read -r -d '' source; do
