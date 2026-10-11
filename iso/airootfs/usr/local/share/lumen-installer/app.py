@@ -67,6 +67,17 @@ class LumenInstaller(Gtk.Application):
         self.hostname = Gtk.Entry(placeholder_text="Hostname", text="lumen", hexpand=True)
         self.keymap = Gtk.Entry(placeholder_text="Console keymap", text="de", hexpand=True)
         self.filesystem = Gtk.DropDown.new_from_strings(["ext4", "btrfs"])
+        self.encryption = Gtk.CheckButton(
+            label="Full-disk encryption (LUKS2; EFI boot partition remains unencrypted)",
+            active=True,
+        )
+        self.encryption_password = Gtk.PasswordEntry(
+            placeholder_text="Disk encryption password", hexpand=True
+        )
+        self.encryption_password_confirm = Gtk.PasswordEntry(
+            placeholder_text="Confirm disk encryption password", hexpand=True
+        )
+        self.encryption.connect("toggled", self.update_encryption_fields)
         self.disk = Gtk.DropDown.new_from_strings(self.disks() or ["No safe disk detected"])
         fields = [
             ("Username", self.user),
@@ -76,6 +87,9 @@ class LumenInstaller(Gtk.Application):
             ("Hostname", self.hostname),
             ("Console keyboard", self.keymap),
             ("Filesystem", self.filesystem),
+            ("Encryption", self.encryption),
+            ("Encryption password", self.encryption_password),
+            ("Confirm encryption password", self.encryption_password_confirm),
             ("Target disk — WILL BE ERASED", self.disk),
         ]
         for row, (label, widget) in enumerate(fields):
@@ -139,11 +153,22 @@ class LumenInstaller(Gtk.Application):
         window.set_child(box)
         window.present()
 
+    def update_encryption_fields(self, *_):
+        enabled = self.encryption.get_active()
+        self.encryption_password.set_sensitive(enabled)
+        self.encryption_password_confirm.set_sensitive(enabled)
+
     def confirm(self, *_):
         disk = self.disk.get_selected_item().get_string()
         if (not self.user.get_text() or not self.userpass.get_text() or not self.rootpass.get_text()
                 or not self.hostname.get_text() or not self.keymap.get_text() or not disk.startswith("/dev/")):
             self.status.set_text("Enter username, passwords, hostname, keyboard and select a safe target disk.")
+            return
+        if (self.encryption.get_active()
+                and (not self.encryption_password.get_text()
+                     or self.encryption_password.get_text()
+                     != self.encryption_password_confirm.get_text())):
+            self.status.set_text("Enter matching disk-encryption passwords, or turn encryption off.")
             return
         dialog = Gtk.AlertDialog(
             message="Erase " + disk.split()[0] + "?",
@@ -163,6 +188,8 @@ class LumenInstaller(Gtk.Application):
             "hostname": self.hostname.get_text(),
             "keymap": self.keymap.get_text(),
             "filesystem": self.filesystem.get_selected_item().get_string(),
+            "encryption": self.encryption.get_active(),
+            "encryption_password": self.encryption_password.get_text(),
             "profiles": [name for name, check in self.profile_checks.items() if check.get_active()],
             "disk": self.disk.get_selected_item().get_string().split()[0],
         }

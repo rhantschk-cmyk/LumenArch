@@ -13,3 +13,4 @@ vulkan-intel
 vulkan-radeon
 nvidia-open
 btrfs-progs
+cryptsetup

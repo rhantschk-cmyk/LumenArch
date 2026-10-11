@@ -12,11 +12,15 @@ disk=$(jq -r .disk "$config")
 hostname=$(jq -r '.hostname // "lumen"' "$config")
 keymap=$(jq -r '.keymap // "de"' "$config")
 filesystem=$(jq -r '.filesystem // "ext4"' "$config")
+encryption=$(jq -r '.encryption // true' "$config")
+encryption_password=$(jq -r '.encryption_password // empty' "$config")
 mapfile -t requested_profiles < <(jq -r '.profiles[]?' "$config")
 valid_profiles=(base desktop developer creator gaming)
 
 [[ "$disk" == /dev/* && "$username" =~ ^[a-z_][a-z0-9_-]*$ && "$hostname" =~ ^[a-zA-Z0-9][a-zA-Z0-9-]{0,62}$ && "$keymap" =~ ^[a-zA-Z0-9_-]+$ && -e "/usr/share/zoneinfo/$timezone" ]] || exit 2
 [[ "$filesystem" == ext4 || "$filesystem" == btrfs ]] || exit 2
+[[ "$encryption" == true || "$encryption" == false ]] || exit 2
+[[ "$encryption" == false || -n "$encryption_password" ]] || { echo "Encryption password is required" >&2; exit 2; }
 mapfile -t physical_disks < <(lsblk -dnro PATH,TYPE | awk '$2 == "disk" {print $1}')
 printf '%s\n' "${physical_disks[@]}" | grep -Fxq "$disk" || { echo "Refusing non-disk target: $disk" >&2; exit 2; }
 live_source=$(findmnt -nro SOURCE /run/archiso/bootmnt 2>/dev/null || true)
@@ -31,7 +35,12 @@ for profile in "${requested_profiles[@]}"; do
   [[ " ${valid_profiles[*]} " == *" $profile "* ]] || { echo "Unknown profile: $profile" >&2; exit 2; }
   [[ " ${profiles[*]} " == *" $profile "* ]] || profiles+=("$profile")
 done
-trap 'umount -R /mnt 2>/dev/null || true' EXIT
+crypt_open=false
+cleanup() {
+  umount -R /mnt 2>/dev/null || true
+  [[ "$crypt_open" == true ]] && cryptsetup close lumen-root 2>/dev/null || true
+}
+trap cleanup EXIT
 
 sgdisk --zap-all "$disk"
 sgdisk -n 1:0:+1G -t 1:ef00 -c 1:LUMEN_EFI "$disk"
@@ -39,8 +48,17 @@ sgdisk -n 2:0:0 -t 2:8300 -c 2:LUMEN_ROOT "$disk"
 partprobe "$disk"; sleep 2
 if [[ "$disk" == *nvme* || "$disk" == *mmcblk* ]]; then efi="${disk}p1"; root="${disk}p2"; else efi="${disk}1"; root="${disk}2"; fi
 mkfs.fat -F32 "$efi"
-if [[ "$filesystem" == btrfs ]]; then mkfs.btrfs -f "$root"; else mkfs.ext4 -F "$root"; fi
-mount "$root" /mnt; mkdir -p /mnt/boot; mount "$efi" /mnt/boot
+luks_uuid=""
+root_target="$root"
+if [[ "$encryption" == true ]]; then
+  printf '%s' "$encryption_password" | cryptsetup luksFormat --type luks2 --batch-mode --key-file - "$root"
+  printf '%s' "$encryption_password" | cryptsetup open --key-file - "$root" lumen-root
+  crypt_open=true
+  luks_uuid=$(cryptsetup luksUUID "$root")
+  root_target=/dev/mapper/lumen-root
+fi
+if [[ "$filesystem" == btrfs ]]; then mkfs.btrfs -f "$root_target"; else mkfs.ext4 -F "$root_target"; fi
+mount "$root_target" /mnt; mkdir -p /mnt/boot; mount "$efi" /mnt/boot
 package_files=(/opt/lumen/profiles/installer/packages.pacman)
 for profile in "${profiles[@]}"; do package_files+=("/opt/lumen/profiles/$profile/packages.pacman"); done
 mapfile -t packages < <(sed -E '/^($|#)/d' "${package_files[@]}" | awk '!seen[$0]++')
@@ -56,10 +74,10 @@ install -Dm644 /opt/lumen/system/etc/pacman.conf.d/lumen-holds.conf /mnt/etc/pac
 install -Dm644 /opt/lumen/system/etc/pacman.conf.d/lumen-local.conf /mnt/etc/pacman.conf.d/lumen-local.conf
 [[ -f /etc/pacman.d/mirrorlist ]] && install -Dm644 /etc/pacman.d/mirrorlist /mnt/etc/pacman.d/mirrorlist
 cp -a /opt/lumen /mnt/opt/lumen
-arch-chroot /mnt /bin/bash -s -- "$username" "$timezone" "$root_password" "$user_password" "$hostname" "$keymap" "${profiles[@]}" <<'CHROOT'
+arch-chroot /mnt /bin/bash -s -- "$username" "$timezone" "$root_password" "$user_password" "$hostname" "$keymap" "$encryption" "$luks_uuid" "${profiles[@]}" <<'CHROOT'
 set -Eeuo pipefail
 shopt -s nullglob
-user="$1"; timezone="$2"; root_password="$3"; user_password="$4"; hostname="$5"; keymap="$6"; shift 6
+user="$1"; timezone="$2"; root_password="$3"; user_password="$4"; hostname="$5"; keymap="$6"; encryption="$7"; luks_uuid="$8"; shift 8
 pacman-key --init
 pacman-key --populate archlinux
 ln -sf "/usr/share/zoneinfo/$timezone" /etc/localtime; hwclock --systohc
@@ -78,6 +96,14 @@ for profile in "$@"; do
   done < "$aur_file"
 done
 bootctl install
+if [[ "$encryption" == true ]]; then
+  printf 'lumen-root UUID=%s none luks\n' "$luks_uuid" > /etc/crypttab
+  sed -i -E 's|^HOOKS=.*|HOOKS=(base udev autodetect microcode modconf kms keyboard keymap consolefont block encrypt filesystems fsck)|' /etc/mkinitcpio.conf
+  mkinitcpio -P
+  root_option="root=/dev/mapper/lumen-root cryptdevice=UUID=$luks_uuid:lumen-root"
+else
+  root_option="root=PARTUUID=$(blkid -s PARTUUID -o value "$(findmnt -no SOURCE /)")"
+fi
 cat > /boot/loader/loader.conf <<EOF
 default lumen.conf
 timeout 3
@@ -88,7 +114,7 @@ linux /vmlinuz-linux
 initrd /intel-ucode.img
 initrd /amd-ucode.img
 initrd /initramfs-linux.img
-options root=PARTUUID=$(blkid -s PARTUUID -o value "$(findmnt -no SOURCE /)") rw
+options $root_option rw
 EOF
 cp -a /opt/lumen/system/. /
 chmod 755 /usr/local/bin/lumen /usr/lib/lumen/lumen-repo-sync
@@ -106,3 +132,4 @@ rm -f "$config"
 sync
 trap - EXIT
 umount -R /mnt
+[[ "$crypt_open" == true ]] && cryptsetup close lumen-root

@@ -10,8 +10,10 @@ machine does **not** need an internet connection to install the kernel, drivers,
 desktop, profiles, applications, and their transitive dependencies.
 
 > **Status and safety:** Lumen currently targets UEFI systems and deliberately
-> erases the complete selected disk. ext4 and Btrfs are supported. Encryption,
-> dual boot, and preserving an existing installation are not implemented.
+> erases the complete selected disk. ext4 and Btrfs are supported. The guided
+> installer enables LUKS2 encryption of the system partition by default; the
+> small UEFI boot partition necessarily remains unencrypted. Dual boot and
+> preserving an existing installation are not implemented.
 
 ## What is included
 
@@ -64,7 +66,11 @@ deselected in the installer when a smaller initial system is preferred.
 
 3. In the installer, choose a username and passwords, timezone, hostname,
    keyboard layout, filesystem, target disk, and optional profiles. The
-   Developer, Creator, and Gaming profiles are initially selected.
+   Developer, Creator, and Gaming profiles are initially selected. **Full-disk
+   encryption** is also selected by default: enter and retain its separate
+   LUKS2 passphrase. It encrypts all system data; only the required EFI System
+   Partition is left readable for UEFI firmware and systemd-boot. You can turn
+   it off before installing if you deliberately want an unencrypted system.
 
 4. Confirm the destructive disk operation. After installation, remove the USB
    drive and reboot. SDDM starts the Lumen Hyprland session.
