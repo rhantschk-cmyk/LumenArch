@@ -81,18 +81,16 @@ write_local_config() {
   # A shell root starts as a plain Arch root.  Host-specific Pacman hooks
   # (notably Lumen's repository synchronizer) do not exist there yet, so
   # executing them makes pacstrap fail after a successful transaction.
-  # Keep the normal packaged hooks, but replace the host custom hook dir with
-  # a disposable override for this bootstrap only.  Pacman can retain an
-  # inherited custom HookDir, so additionally mask this exact host hook using
-  # Pacman's documented same-name /dev/null override mechanism.
+  # pacstrap creates a plain Arch root, so Lumen's host-specific repository
+  # hook is not available inside it.  The directory is also passed directly
+  # to Pacman below: pacstrap forwards arguments after its target directory.
+  # This command-line override is stronger than relying on its config alone.
   temporary_hook_dir=$(mktemp -d /var/tmp/lumen-shell-hooks.XXXXXX)
-  ln -s /dev/null "$temporary_hook_dir/lumen-repo.hook"
   cat > "$temporary_config" <<EOF
 [options]
 Architecture = auto
 SigLevel = Required DatabaseOptional
 LocalFileSigLevel = Optional
-HookDir = $temporary_hook_dir
 
 [$REPO_NAME]
 SigLevel = Optional TrustAll
@@ -120,7 +118,7 @@ bootstrap_environment() {
   # root filesystem.
   install -d -m 0700 /run/lumen-shell
   shell_root=$(mktemp -d /run/lumen-shell/root.XXXXXX)
-  if pacstrap -G -C "$temporary_config" "$shell_root" bash coreutils vim "${packages[@]}"; then
+  if pacstrap -G -C "$temporary_config" "$shell_root" --hookdir "$temporary_hook_dir" bash coreutils vim "${packages[@]}"; then
     # mktemp creates the container root as 0700. The workspace mode runs the
     # payload as the invoking user, who otherwise cannot traverse '/' to reach
     # /usr/bin/bash after nspawn switches UID.
@@ -132,7 +130,7 @@ bootstrap_environment() {
   shell_root=''
   download_closure
   shell_root=$(mktemp -d /run/lumen-shell/root.XXXXXX)
-  pacstrap -G -C "$temporary_config" "$shell_root" bash coreutils vim "${packages[@]}"
+  pacstrap -G -C "$temporary_config" "$shell_root" --hookdir "$temporary_hook_dir" bash coreutils vim "${packages[@]}"
   chmod 755 "$shell_root"
 }
 
