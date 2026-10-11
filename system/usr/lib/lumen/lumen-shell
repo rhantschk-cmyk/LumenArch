@@ -7,6 +7,7 @@ repo_sync=/usr/lib/lumen/lumen-repo-sync
 shell_root=''
 temporary_config=''
 temporary_db=''
+temporary_hook_dir=''
 workspace_dir=''
 shell_uid=''
 shell_gid=''
@@ -65,6 +66,9 @@ cleanup() {
   if [[ -n "$temporary_db" && "$temporary_db" == /var/tmp/lumen-shell-db.* && -d "$temporary_db" ]]; then
     rm -rf -- "$temporary_db"
   fi
+  if [[ -n "$temporary_hook_dir" && "$temporary_hook_dir" == /var/tmp/lumen-shell-hooks.* && -d "$temporary_hook_dir" ]]; then
+    rm -rf -- "$temporary_hook_dir"
+  fi
 }
 trap cleanup EXIT INT TERM
 
@@ -74,11 +78,18 @@ require_root() {
 
 write_local_config() {
   temporary_config=$(mktemp /var/tmp/lumen-shell-pacman.XXXXXX)
+  # A shell root starts as a plain Arch root.  Host-specific Pacman hooks
+  # (notably Lumen's repository synchronizer) do not exist there yet, so
+  # executing them makes pacstrap fail after a successful transaction.
+  # Keep the normal packaged hooks, but replace the host custom hook dir with
+  # an empty disposable one for this bootstrap only.
+  temporary_hook_dir=$(mktemp -d /var/tmp/lumen-shell-hooks.XXXXXX)
   cat > "$temporary_config" <<EOF
 [options]
 Architecture = auto
 SigLevel = Required DatabaseOptional
 LocalFileSigLevel = Optional
+HookDir = $temporary_hook_dir
 
 [$REPO_NAME]
 SigLevel = Optional TrustAll
