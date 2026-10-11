@@ -7,7 +7,10 @@ for script in "$root_dir"/scripts/*.sh; do bash -n "$script"; done
 for script in "$root_dir"/iso/airootfs/usr/local/bin/*; do bash -n "$script"; done
 for script in "$root_dir"/home/.config/lumen/scripts/*.sh; do bash -n "$script"; done
 for script in "$root_dir"/home/.config/lumen/bin/*; do bash -n "$script"; done
-for script in "$root_dir"/system/usr/local/bin/* "$root_dir"/system/usr/lib/lumen/*; do bash -n "$script"; done
+for script in "$root_dir"/system/usr/local/bin/* "$root_dir"/system/usr/lib/lumen/*; do
+  [[ "$script" == "$root_dir/system/usr/lib/lumen/lumen-project" ]] && continue
+  bash -n "$script"
+done
 while IFS= read -r package; do
   [[ "$package" =~ ^[a-z0-9@._+:-]+$ ]] || { echo "Invalid package: $package" >&2; exit 1; }
 done < <(find "$root_dir/profiles" -type f \( -name 'packages.pacman' -o -name 'packages.aur' \) -print0 | xargs -0 sed -E '/^($|#)/d')
@@ -29,6 +32,7 @@ grep -q 'cryptsetup luksFormat' "$root_dir/iso/airootfs/usr/local/bin/lumen-offl
 grep -q 'cryptdevice=UUID=' "$root_dir/iso/airootfs/usr/local/bin/lumen-offline-install"
 grep -q 'Full-disk encryption' "$root_dir/iso/airootfs/usr/local/share/lumen-installer/app.py"
 grep -qx 'cryptsetup' "$root_dir/profiles/base/packages.pacman"
+grep -qx 'python' "$root_dir/profiles/base/packages.pacman"
 test -x "$root_dir/home/.config/lumen/bin/lumen-applications"
 test -x "$root_dir/home/.config/lumen/bin/lumen-clipboard"
 test -f "$root_dir/home/.config/nvim/init.lua"
@@ -39,6 +43,7 @@ test -x "$root_dir/system/usr/local/bin/lumen"
 test -x "$root_dir/system/usr/lib/lumen/lumen-repo-sync"
 grep -q 'local_sync_database()' "$root_dir/system/usr/lib/lumen/lumen-repo-sync"
 grep -q 'install -Dm644 "$REPO_DIR/$REPO_NAME.db" "$sync_database"' "$root_dir/system/usr/lib/lumen/lumen-repo-sync"
+grep -q 'protected-packages' "$root_dir/system/usr/lib/lumen/lumen-repo-sync"
 test -x "$root_dir/system/usr/lib/lumen/lumen-shell"
 grep -q 'bash coreutils vim' "$root_dir/system/usr/lib/lumen/lumen-shell"
 grep -q -- '--bind="$workspace_dir:/workspace"' "$root_dir/system/usr/lib/lumen/lumen-shell"
@@ -47,6 +52,8 @@ grep -q -- '--uid="$shell_uid"' "$root_dir/system/usr/lib/lumen/lumen-shell"
 ! grep -q -- '--user="$shell_uid"' "$root_dir/system/usr/lib/lumen/lumen-shell"
 grep -q 'chmod 755 "$shell_root"' "$root_dir/system/usr/lib/lumen/lumen-shell"
 grep -q -- 'shell <package> \[--dir path\]' "$root_dir/system/usr/local/bin/lumen"
+test -x "$root_dir/system/usr/lib/lumen/lumen-project"
+python -c 'import sys; compile(open(sys.argv[1], encoding="utf-8").read(), sys.argv[1], "exec")' "$root_dir/system/usr/lib/lumen/lumen-project"
 test -f "$root_dir/system/etc/lumen/repo.conf"
 test -f "$root_dir/system/etc/pacman.conf.d/lumen-local.conf"
 test -f "$root_dir/system/etc/pacman.d/hooks/lumen-repo.hook"

@@ -10,6 +10,10 @@ temporary_db=''
 workspace_dir=''
 shell_uid=''
 shell_gid=''
+packages=()
+command_to_run=''
+lock_file=''
+prepare_only=false
 
 if [[ -r "$config_file" ]]; then
   source "$config_file"
@@ -20,7 +24,8 @@ fi
 
 usage() {
   cat <<'EOF'
-Usage: lumen-shell <official-package> [--dir <directory>]
+Usage: lumen-shell <official-package> [options]
+       lumen-shell --package <official-package> [--package <package> ...] [options]
 
 Create a temporary, isolated command-line environment containing an official
 Arch package. Host packages are never modified. On exit the environment is
@@ -33,6 +38,13 @@ files retain normal ownership.
 
 If the package closure is already local, no network is used. Otherwise Lumen
 downloads the closure into its local repository before creating the shell.
+
+Options:
+  --package PACKAGE     add an official package (may be repeated)
+  --dir DIRECTORY       mount a host directory at /workspace
+  --command COMMAND     run COMMAND in the environment instead of an interactive shell
+  --prepare             resolve packages and optionally write a lock, then exit
+  --lock-file PATH      write the resolved package list to PATH
 EOF
 }
 
@@ -77,7 +89,7 @@ download_closure() {
   temporary_db=$(mktemp -d /var/tmp/lumen-shell-db.XXXXXX)
   mkdir -p "$REPO_DIR"
   pacman -Syyw --noconfirm --dbpath "$temporary_db" --cachedir "$REPO_DIR" \
-    bash coreutils vim "$package"
+    bash coreutils vim "${packages[@]}"
   rm -rf -- "$temporary_db"
   temporary_db=''
   "$repo_sync" sync
@@ -90,7 +102,7 @@ bootstrap_environment() {
   # root filesystem.
   install -d -m 0700 /run/lumen-shell
   shell_root=$(mktemp -d /run/lumen-shell/root.XXXXXX)
-  if pacstrap -G -C "$temporary_config" "$shell_root" bash coreutils vim "$package"; then
+  if pacstrap -G -C "$temporary_config" "$shell_root" bash coreutils vim "${packages[@]}"; then
     # mktemp creates the container root as 0700. The workspace mode runs the
     # payload as the invoking user, who otherwise cannot traverse '/' to reach
     # /usr/bin/bash after nspawn switches UID.
@@ -102,7 +114,7 @@ bootstrap_environment() {
   shell_root=''
   download_closure
   shell_root=$(mktemp -d /run/lumen-shell/root.XXXXXX)
-  pacstrap -G -C "$temporary_config" "$shell_root" bash coreutils vim "$package"
+  pacstrap -G -C "$temporary_config" "$shell_root" bash coreutils vim "${packages[@]}"
   chmod 755 "$shell_root"
 }
 
@@ -128,20 +140,46 @@ esac
 
 require_root
 [[ $# -ge 1 ]] || { usage >&2; exit 2; }
-package="$1"
-shift
+if [[ "${1:-}" != --* ]]; then
+  packages+=("$1")
+  shift
+fi
 while (($#)); do
   case "$1" in
+    --package)
+      [[ $# -ge 2 ]] || { usage >&2; exit 2; }
+      packages+=("$2")
+      shift 2
+      ;;
     --dir)
       [[ $# -eq 2 && -z "$workspace_dir" ]] || { usage >&2; exit 2; }
       workspace_dir=$(realpath -e -- "$2")
       [[ -d "$workspace_dir" ]] || { echo "Not a directory: $2" >&2; exit 2; }
       shift 2
       ;;
+    --command)
+      [[ $# -eq 2 && -z "$command_to_run" ]] || { usage >&2; exit 2; }
+      command_to_run="$2"
+      shift 2
+      ;;
+    --lock-file)
+      [[ $# -eq 2 && -z "$lock_file" ]] || { usage >&2; exit 2; }
+      lock_file="$2"
+      shift 2
+      ;;
+    --prepare)
+      prepare_only=true
+      shift
+      ;;
     *) usage >&2; exit 2 ;;
   esac
 done
-valid_package_name "$package" || { echo "Invalid package name: $package" >&2; exit 2; }
+(( ${#packages[@]} > 0 )) || { usage >&2; exit 2; }
+for package in "${packages[@]}"; do
+  valid_package_name "$package" || { echo "Invalid package name: $package" >&2; exit 2; }
+done
+[[ "$prepare_only" == false || -z "$command_to_run" ]] || { echo '--prepare and --command cannot be combined.' >&2; exit 2; }
+[[ -z "$command_to_run" || -n "$workspace_dir" ]] || { echo '--command requires --dir.' >&2; exit 2; }
 command -v pacstrap >/dev/null || { echo 'pacstrap is unavailable; install arch-install-scripts.' >&2; exit 1; }
 command -v systemd-nspawn >/dev/null || { echo 'systemd-nspawn is unavailable.' >&2; exit 1; }
 [[ -x "$repo_sync" ]] || { echo 'Lumen repository helper is unavailable.' >&2; exit 1; }
@@ -149,20 +187,30 @@ command -v systemd-nspawn >/dev/null || { echo 'systemd-nspawn is unavailable.' 
 write_local_config
 bootstrap_environment
 prepare_workspace_user
+if [[ -n "$lock_file" ]]; then
+  install -d -m 0755 "$(dirname -- "$lock_file")"
+  pacman -Q --root "$shell_root" | LC_ALL=C sort > "$lock_file"
+fi
+if [[ "$prepare_only" == true ]]; then
+  echo "Prepared temporary Lumen environment: ${packages[*]}"
+  exit 0
+fi
 {
-  printf "PS1='(lumen:%s) " "$package"
+  printf "PS1='(lumen:%s) " "${packages[0]}"
   cat <<'EOF'
 \u@\h:\w\$ '
 EOF
 } > "$shell_root/root/.bashrc"
 
-echo "Entering temporary Lumen shell for: $package"
+echo "Entering temporary Lumen shell for: ${packages[*]}"
 echo 'Run exit to remove the environment. Host packages are unchanged.'
 if [[ -n "$workspace_dir" ]]; then
   echo "Host directory mounted at /workspace: $workspace_dir"
-  systemd-nspawn --directory="$shell_root" --register=no --uid="$shell_uid" \
-    --chdir=/workspace --bind="$workspace_dir:/workspace" \
-    --setenv="TERM=${TERM:-xterm-256color}" /usr/bin/bash -l
+  nspawn_args=(--directory="$shell_root" --register=no --uid="$shell_uid"
+    --chdir=/workspace --bind="$workspace_dir:/workspace"
+    --setenv="TERM=${TERM:-xterm-256color}" /usr/bin/bash)
+  if [[ -n "$command_to_run" ]]; then nspawn_args+=(-lc "$command_to_run"); else nspawn_args+=(-l); fi
+  systemd-nspawn "${nspawn_args[@]}"
 else
   systemd-nspawn --directory="$shell_root" --register=no --setenv="TERM=${TERM:-xterm-256color}" /usr/bin/bash -l
 fi

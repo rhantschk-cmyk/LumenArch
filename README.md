@@ -208,6 +208,7 @@ lumen install <package>              # official package, then Yay fallback
 lumen appearance dark
 lumen default set browser firefox.desktop
 lumen shell jq                       # temporary CLI environment; exit removes it
+lumen project init . --name demo --description "Example project"
 ```
 
 Lumen's package archive has a deliberate split between settings and data:
@@ -320,6 +321,91 @@ the shell starts fully offline. When something is missing, Lumen downloads the
 official package closure into `/var/lib/lumen/repo/` first, but never installs
 it on the host. The root filesystem exists only until `exit`; package archives
 remain in the local repository for the next shell.
+
+## Reproducible coding projects
+
+Lumen projects combine a project-local `project.lumen` manifest with a
+system-wide registry and immutable local snapshots. They deliberately
+complement Git rather than replacing it: use Git for collaboration and history;
+use Lumen snapshots to preserve a working tree **and** the exact local package
+environment that built it.
+
+Create a project in an existing or new directory:
+
+```bash
+mkdir -p ~/code/example
+cd ~/code/example
+lumen project init . --name example --description "Example Rust project"
+```
+
+This writes `project.lumen`, registers the project under
+`/var/lib/lumen/projects/`, and leaves source files in their original location.
+The generated manifest is TOML and intentionally small:
+
+```toml
+[Init]
+Name = "example"
+Description = "Example Rust project"
+
+[Environment]
+Packages = ["rust", "cargo"]
+Workspace = "."
+Exec = "cargo run"
+Compile = "cargo build --release"
+Mode = "shell" # shell (default) or host
+
+[Versions]
+Path = ".lumen/versions"
+CompileBeforeSaving = true
+Exclude = [".git", "target", "node_modules", ".lumen"]
+```
+
+`Init.Name`, `Init.Description`, `Packages`, `Workspace`, `Exec`, and `Compile`
+are required; `Mode` defaults to `shell`. Package names must be official Pacman package names. `Workspace` and snapshot
+exclusions are relative to the project and may not escape it. `Mode = "shell"`
+is the default and runs commands in an ephemeral Lumen environment; choose
+`host` only when a command intentionally needs installed host tools.
+
+Use the project from its directory, or name it explicitly:
+
+```bash
+lumen project status
+lumen project prepare                # resolve package closure into the local repo
+lumen project shell                  # open the declared environment at /workspace
+lumen project compile
+lumen project run
+lumen project save --label "first working build"
+lumen project versions
+lumen project example --run
+```
+
+The shell shortcut is equivalent and registers the manifest if necessary:
+
+```bash
+lumen shell --dir . --config project.lumen
+```
+
+Every `prepare`, `run`, `compile`, and `save` resolves the environment from
+the local repository first. Lumen creates a lock containing the exact package
+versions, archive names, and SHA-256 checksums. Missing archives are downloaded
+into `/var/lib/lumen/repo/` but are never installed on the host merely for a
+project environment.
+
+`save` optionally compiles first, stores a `.tar.zst` source snapshot, saves
+the matching manifest and package lock, and returns a version such as
+`v000001`. When the workspace is a Git checkout, its commit, branch, and dirty
+state are recorded with the snapshot. Restore is intentionally explicit and first snapshots the current
+working tree:
+
+```bash
+lumen project restore --version v000001 --yes
+lumen project diff v000001 v000002
+```
+
+Saved snapshot locks protect their package archives: `lumen repo prune` retains
+them, and `lumen repo exclude <package>` refuses to remove a package required
+by a saved project version. `lumen project remove NAME --yes` removes only
+Lumen's metadata and snapshots; it never deletes your actual source directory.
 
 ## Build in a container
 

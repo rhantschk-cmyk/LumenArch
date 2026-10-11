@@ -7,6 +7,7 @@ exclude_file=/etc/lumen/repo-exclude
 holds_file=/etc/lumen/holds
 pacman_fragment=/etc/pacman.conf.d/lumen-local.conf
 holds_fragment=/etc/pacman.conf.d/lumen-holds.conf
+project_helper=/usr/lib/lumen/lumen-project
 
 if [[ -r "$config_file" ]]; then
   source "$config_file"
@@ -193,6 +194,11 @@ list_exclusions() {
   sed -E '/^(#|$)/d' "$exclude_file"
 }
 
+project_uses_package() {
+  [[ -x "$project_helper" ]] || return 1
+  "$project_helper" protected-packages 2>/dev/null | grep -Fxq -- "$1"
+}
+
 case "${1:-}" in
   --from-cache|sync) sync_repository ;;
   add) [[ $# -eq 2 ]] || { usage >&2; exit 2; }; add_archive_or_package "$2" ;;
@@ -201,13 +207,30 @@ case "${1:-}" in
     valid_package_name "$2" || { echo "Invalid package name: $2" >&2; exit 2; }
     require_root
     case "$1" in
-      exclude) append_unique "$2" "$exclude_file"; sync_repository ;;
+      exclude)
+        if project_uses_package "$2"; then
+          echo "Refusing to exclude $2: one or more saved Lumen project versions require it." >&2
+          echo 'Remove those snapshots first if you deliberately want to make them non-reproducible.' >&2
+          exit 1
+        fi
+        append_unique "$2" "$exclude_file"; sync_repository
+        ;;
       unexclude) remove_value "$2" "$exclude_file"; sync_repository ;;
       hold) append_unique "$2" "$holds_file"; write_holds_fragment ;;
       unhold) remove_value "$2" "$holds_file"; write_holds_fragment ;;
     esac
     ;;
-  prune) require_root; paccache -rk2 -c "$REPO_DIR"; sync_repository ;;
+  prune)
+    require_root
+    mapfile -t protected < <([[ -x "$project_helper" ]] && "$project_helper" protected-packages || true)
+    if ((${#protected[@]})); then
+      protected_csv=$(IFS=,; printf '%s' "${protected[*]}")
+      paccache -rk2 -c "$REPO_DIR" --ignore "$protected_csv"
+    else
+      paccache -rk2 -c "$REPO_DIR"
+    fi
+    sync_repository
+    ;;
   status) status ;;
   list) list_archives ;;
   exclusions) list_exclusions ;;

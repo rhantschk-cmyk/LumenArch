@@ -185,6 +185,41 @@ repository_menu() {
   done
 }
 
+project_menu() {
+  while true; do
+    title
+    local choice directory name description project version label
+    choice=$(printf '%s\n' \
+      '󰏗  List registered projects' \
+      '󰈙  Initialise project in a directory' \
+      '󰆍  Open project shell' \
+      '󰑓  Run project command' \
+      '󰅩  Compile project' \
+      '󰆴  Save project snapshot' \
+      '󰋚  List project versions' \
+      '󰜺  Back' | gum choose --height 12) || return
+    case "$choice" in
+      *List\ registered*) run lumen project list ;;
+      *Initialise*)
+        directory=$(gum input --prompt 'Directory: ' --value "$PWD") || continue
+        name=$(gum input --prompt 'Project name: ') || continue
+        description=$(gum input --prompt 'Description: ') || continue
+        [[ -n "$name" && -n "$description" ]] && run lumen project init "$directory" --name "$name" --description "$description"
+        ;;
+      *shell*) project=$(gum input --prompt 'Project name (empty = current directory): ') || continue; run lumen project shell $project ;;
+      *Run*) project=$(gum input --prompt 'Project name (empty = current directory): ') || continue; run lumen project run $project ;;
+      *Compile*) project=$(gum input --prompt 'Project name (empty = current directory): ') || continue; run lumen project compile $project ;;
+      *Save*)
+        project=$(gum input --prompt 'Project name (empty = current directory): ') || continue
+        label=$(gum input --prompt 'Snapshot label (optional): ') || continue
+        if [[ -n "$label" ]]; then run lumen project save $project --label "$label"; else run lumen project save $project; fi
+        ;;
+      *versions*) project=$(gum input --prompt 'Project name (empty = current directory): ') || continue; run lumen project versions $project ;;
+      *Back*) return ;;
+    esac
+  done
+}
+
 system_menu() {
   while true; do
     title
@@ -221,6 +256,7 @@ main() {
       '󰚰  Update Lumen and packages' \
       '󰏖  Packages and applications' \
       '󰖨  Appearance and default apps' \
+      '󰈙  Projects and snapshots' \
       '󰏗  Local offline repository' \
       '󰀻  System, network, and services' \
       '󰈙  Create web app shortcut' \
@@ -230,6 +266,7 @@ main() {
       *Update*) update_lumen ;;
       *Packages*) package_menu ;;
       *Appearance*) appearance_menu ;;
+      *Projects*) project_menu ;;
       *repository*) repository_menu ;;
       *System*) system_menu ;;
       *web\ app*) create_webapp ;;

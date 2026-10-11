@@ -37,6 +37,8 @@ Everyday commands:
   update                         update Lumen files and installed packages
   doctor                         inspect common Lumen session and package health
   shell <package> [--dir path]   enter a temporary CLI environment; optionally mount a work directory
+  shell --dir path --config FILE enter the environment declared by project.lumen
+  project <command>              manage reproducible local coding projects
   appearance <dark|light>        set GTK and portal colour preference
   default get <role>             show the default browser, editor, or file-manager
   default set <role> <desktop>   set a .desktop application for a role
@@ -197,6 +199,15 @@ case "${1:-help}" in
   info) shift; (($#)) && pacman -Si "$@" || { help >&2; exit 2; } ;;
   shell)
     shift
+    if [[ $# -eq 4 && "$1" == --dir && "$3" == --config ]]; then
+      workspace=$(realpath -e -- "$2")
+      config=$(realpath -e -- "$4")
+      [[ -d "$workspace" && -f "$config" && "$(dirname -- "$config")" == "$workspace" ]] || {
+        echo 'Use a project.lumen file directly inside the selected --dir directory.' >&2
+        exit 2
+      }
+      exec sudo /usr/lib/lumen/lumen-project shell-config "$workspace"
+    fi
     [[ $# -eq 1 || ( $# -eq 3 && "$2" == --dir ) ]] || {
       echo 'Usage: lumen shell <official-package> [--dir <directory>]' >&2
       exit 2
@@ -207,6 +218,10 @@ case "${1:-help}" in
       exec sudo /usr/lib/lumen/lumen-shell "$1" --dir "$workspace"
     fi
     exec sudo /usr/lib/lumen/lumen-shell "$1"
+    ;;
+  project)
+    shift
+    exec sudo /usr/lib/lumen/lumen-project "$@"
     ;;
   repo)
     shift

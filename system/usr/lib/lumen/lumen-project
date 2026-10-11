@@ -1,0 +1,445 @@
+#!/usr/bin/env python3
+"""Root-backed project registry, reproducible environments, and snapshots."""
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tarfile
+import tempfile
+from pathlib import Path
+
+try:
+    import tomllib
+except ModuleNotFoundError as exc:
+    raise SystemExit("Python 3.11 or newer is required for Lumen projects.") from exc
+
+ROOT = Path("/var/lib/lumen/projects")
+INDEX = ROOT / "index.json"
+REPO = Path("/var/lib/lumen/repo")
+SHELL = "/usr/lib/lumen/lumen-shell"
+NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+PACKAGE = re.compile(r"^[A-Za-z0-9@._+:-]+$")
+
+
+def die(message, code=1):
+    print(f"lumen project: {message}", file=sys.stderr)
+    raise SystemExit(code)
+
+
+def require_root():
+    if os.geteuid() != 0:
+        die("this command must be run through sudo")
+
+
+def caller_ids():
+    user = os.environ.get("SUDO_USER")
+    uid = os.environ.get("SUDO_UID")
+    gid = os.environ.get("SUDO_GID")
+    if not user or not uid or not gid or user == "root":
+        die("run `lumen project …` as a regular user, not directly as root")
+    return user, int(uid), int(gid)
+
+
+def load_index():
+    if not INDEX.exists():
+        return {"schema": 1, "projects": {}}
+    try:
+        data = json.loads(INDEX.read_text())
+        if data.get("schema") != 1 or not isinstance(data.get("projects"), dict):
+            raise ValueError
+        return data
+    except (OSError, ValueError, json.JSONDecodeError):
+        die("project registry is invalid: /var/lib/lumen/projects/index.json")
+
+
+def atomic_json(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+        os.chmod(temporary, 0o644)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def project_id(name, workspace):
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "project"
+    digest = hashlib.sha256(str(workspace).encode()).hexdigest()[:10]
+    return f"{slug}-{digest}"
+
+
+def config_path(directory):
+    return directory / "project.lumen"
+
+
+def parse_config(directory):
+    directory = directory.resolve()
+    path = config_path(directory)
+    if not path.is_file():
+        die(f"missing project.lumen in {directory}")
+    try:
+        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+        init = raw["Init"]
+        environment = raw["Environment"]
+        versions = raw["Versions"]
+        name = init["Name"]
+        description = init["Description"]
+        packages = environment["Packages"]
+        workspace_setting = environment["Workspace"]
+        execute = environment["Exec"]
+        compile_command = environment["Compile"]
+        mode = environment.get("Mode", "shell")
+        versions_path = versions.get("Path", ".lumen/versions")
+        compile_before = versions.get("CompileBeforeSaving", True)
+        excludes = versions.get("Exclude", [".git", "target", "node_modules", ".lumen"])
+    except (KeyError, TypeError, tomllib.TOMLDecodeError) as exc:
+        die(f"invalid project.lumen: {exc}")
+    if not all(isinstance(value, str) for value in (name, description, workspace_setting, execute, compile_command, mode, versions_path)):
+        die("project.lumen text fields must be strings")
+    if not NAME.fullmatch(name):
+        die("Init.Name must contain 1-64 letters, digits, dot, underscore, or hyphen")
+    if not isinstance(packages, list) or not packages or not all(isinstance(item, str) and PACKAGE.fullmatch(item) for item in packages):
+        die("Environment.Packages must be a non-empty list of official package names")
+    if mode not in ("shell", "host"):
+        die("Environment.Mode must be shell or host")
+    if not isinstance(compile_before, bool) or not isinstance(excludes, list) or not all(isinstance(item, str) for item in excludes):
+        die("Versions settings have invalid types")
+    workspace = (directory / workspace_setting).resolve()
+    if workspace != directory and directory not in workspace.parents:
+        die("Environment.Workspace must stay inside the project directory")
+    if not workspace.is_dir():
+        die(f"workspace does not exist: {workspace}")
+    for excluded in excludes:
+        if Path(excluded).is_absolute() or ".." in Path(excluded).parts:
+            die("Versions.Exclude entries must be relative and may not contain ..")
+    return {
+        "directory": directory, "config": path, "name": name, "description": description,
+        "packages": list(dict.fromkeys(packages)), "workspace": workspace, "exec": execute,
+        "compile": compile_command, "mode": mode, "versions_path": versions_path,
+        "compile_before": compile_before, "excludes": excludes,
+    }
+
+
+def find_project_directory(start):
+    current = Path(start).resolve()
+    if current.is_file():
+        current = current.parent
+    for candidate in (current, *current.parents):
+        if config_path(candidate).is_file():
+            return candidate
+    die("no project.lumen found in this directory or its parents")
+
+
+def project_record(selector=None, directory=None):
+    index = load_index()
+    if directory is not None:
+        directory = find_project_directory(directory)
+        matches = [(ident, record) for ident, record in index["projects"].items() if Path(record["path"]) == directory]
+        if matches:
+            return matches[0][0], matches[0][1], index
+        cfg = parse_config(directory)
+        ident = project_id(cfg["name"], directory)
+        return ident, {"name": cfg["name"], "path": str(directory), "description": cfg["description"]}, index
+    if not selector:
+        return project_record(directory=Path.cwd())
+    for ident, record in index["projects"].items():
+        if selector in (ident, record.get("name")):
+            return ident, record, index
+    die(f"unknown project: {selector}")
+
+
+def register(directory):
+    cfg = parse_config(directory)
+    ident = project_id(cfg["name"], cfg["directory"])
+    index = load_index()
+    index["projects"][ident] = {"name": cfg["name"], "description": cfg["description"], "path": str(cfg["directory"])}
+    atomic_json(INDEX, index)
+    base = ROOT / ident
+    for child in ("snapshots", "locks", "manifests"):
+        (base / child).mkdir(parents=True, exist_ok=True)
+    atomic_json(base / "metadata.json", {"id": ident, **index["projects"][ident]})
+    return ident, cfg
+
+
+def run(command, check=True, **kwargs):
+    return subprocess.run(command, check=check, text=True, **kwargs)
+
+
+def lock_path(ident, version="current"):
+    return ROOT / ident / "locks" / f"{version}.json"
+
+
+def enrich_lock(raw_lock):
+    wanted = {}
+    for line in raw_lock.read_text().splitlines():
+        pieces = line.split(maxsplit=1)
+        if len(pieces) == 2:
+            wanted[pieces[0]] = pieces[1]
+    archives = {}
+    for archive in REPO.glob("*.pkg.tar.*"):
+        if archive.name.endswith(".sig"):
+            continue
+        result = subprocess.run(["pacman", "-Qp", str(archive)], text=True, capture_output=True, check=False)
+        pieces = result.stdout.split()
+        if len(pieces) >= 2 and wanted.get(pieces[0]) == pieces[1]:
+            archives[pieces[0]] = {"version": pieces[1], "archive": archive.name,
+                                   "sha256": hashlib.file_digest(archive.open("rb"), "sha256").hexdigest()}
+    missing = sorted(set(wanted) - set(archives))
+    if missing:
+        die("local repository is missing resolved archives: " + ", ".join(missing[:8]))
+    return {"schema": 1, "packages": [{"name": name, **archives[name]} for name in sorted(archives)]}
+
+
+def prepare_lock(ident, cfg, version="current"):
+    destination = lock_path(ident, version)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(prefix="lumen-project-lock.", delete=False) as handle:
+        raw = Path(handle.name)
+    try:
+        command = [SHELL]
+        for package in cfg["packages"]:
+            command += ["--package", package]
+        command += ["--dir", str(cfg["workspace"]), "--prepare", "--lock-file", str(raw)]
+        run(command)
+        atomic_json(destination, enrich_lock(raw))
+    finally:
+        raw.unlink(missing_ok=True)
+    return destination
+
+
+def run_in_environment(cfg, command):
+    if not command:
+        die("the requested command is empty in project.lumen")
+    if cfg["mode"] == "host":
+        return run(["/usr/bin/bash", "-lc", command], cwd=cfg["workspace"], check=False).returncode
+    args = [SHELL]
+    for package in cfg["packages"]:
+        args += ["--package", package]
+    args += ["--dir", str(cfg["workspace"]), "--command", command]
+    return run(args, check=False).returncode
+
+
+def next_version(ident):
+    snapshots = ROOT / ident / "snapshots"
+    numbers = [int(item.stem[1:]) for item in snapshots.glob("v*.tar.zst") if re.fullmatch(r"v\d{6}", item.stem)]
+    return f"v{max(numbers, default=0) + 1:06d}"
+
+
+def git_state(workspace):
+    if not (workspace / ".git").exists():
+        return None
+    try:
+        commit = subprocess.check_output(["git", "-C", str(workspace), "rev-parse", "HEAD"], text=True).strip()
+        branch = subprocess.check_output(["git", "-C", str(workspace), "branch", "--show-current"], text=True).strip()
+        dirty = bool(subprocess.check_output(["git", "-C", str(workspace), "status", "--porcelain"], text=True).strip())
+        return {"commit": commit, "branch": branch, "dirty": dirty}
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+
+def create_snapshot(ident, cfg, label=None, compile_before=None):
+    prepare_lock(ident, cfg)
+    if (cfg["compile_before"] if compile_before is None else compile_before) and cfg["compile"]:
+        print("Compiling before snapshot…")
+        if run_in_environment(cfg, cfg["compile"]) != 0:
+            die("compile failed; snapshot was not created")
+    version = next_version(ident)
+    base = ROOT / ident
+    temporary = base / "snapshots" / f".{version}.tar.zst"
+    destination = base / "snapshots" / f"{version}.tar.zst"
+    command = ["tar", "--zstd", "--numeric-owner"]
+    for excluded in cfg["excludes"]:
+        command.append(f"--exclude={excluded}")
+    command += ["-cf", str(temporary), "-C", str(cfg["workspace"]), "."]
+    run(command)
+    os.replace(temporary, destination)
+    shutil.copy2(cfg["config"], base / "manifests" / f"{version}.lumen")
+    shutil.copy2(lock_path(ident), lock_path(ident, version))
+    meta = {"version": version, "label": label or "", "created_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(), "git": git_state(cfg["workspace"])}
+    atomic_json(base / "snapshots" / f"{version}.json", meta)
+    print(f"Saved {cfg['name']} snapshot {version}.")
+    return version
+
+
+def versions(ident):
+    result = []
+    for metadata in sorted((ROOT / ident / "snapshots").glob("v*.json")):
+        try:
+            result.append(json.loads(metadata.read_text()))
+        except json.JSONDecodeError:
+            continue
+    return result
+
+
+def restore_snapshot(ident, cfg, version, yes):
+    source = ROOT / ident / "snapshots" / f"{version}.tar.zst"
+    if not source.is_file():
+        die(f"snapshot not found: {version}")
+    if not yes:
+        die("restore changes the working tree; repeat with --yes")
+    backup = create_snapshot(ident, cfg, label=f"automatic backup before restoring {version}", compile_before=False)
+    with tempfile.TemporaryDirectory(prefix="lumen-project-restore.") as temporary:
+        run(["tar", "--zstd", "-xf", str(source), "-C", temporary])
+        run(["rsync", "-a", "--delete", f"{temporary}/", f"{cfg['workspace']}/"])
+    print(f"Restored {version}; previous working tree saved as {backup}.")
+
+
+def show_status(ident, record, cfg):
+    current = lock_path(ident)
+    print(f"Project: {record['name']} ({ident})")
+    print(f"Path: {cfg['directory']}")
+    print(f"Workspace: {cfg['workspace']}")
+    print(f"Mode: {cfg['mode']}")
+    print("Packages: " + ", ".join(cfg["packages"]))
+    print(f"Snapshots: {len(versions(ident))}")
+    print("Environment lock: " + ("ready" if current.exists() else "not prepared"))
+
+
+def write_template(directory, name, description, uid, gid):
+    path = config_path(directory)
+    if path.exists():
+        die(f"refusing to overwrite existing {path}")
+    text = (
+        "[Init]\n"
+        f"Name = {json.dumps(name)}\nDescription = {json.dumps(description)}\n\n"
+        "[Environment]\nPackages = [\"bash\"]\nWorkspace = \".\"\n"
+        "Exec = \"\"\nCompile = \"\"\nMode = \"shell\"\n\n"
+        "[Versions]\nPath = \".lumen/versions\"\nCompileBeforeSaving = true\n"
+        "Exclude = [\".git\", \"target\", \"node_modules\", \".lumen\"]\n"
+    )
+    path.write_text(text, encoding="utf-8")
+    os.chown(path, uid, gid)
+
+
+def protected_archives():
+    for lock in ROOT.glob("*/locks/v*.json"):
+        try:
+            for package in json.loads(lock.read_text()).get("packages", []):
+                archive = package.get("archive")
+                if isinstance(archive, str):
+                    print(archive)
+        except (OSError, json.JSONDecodeError):
+            continue
+
+
+def protected_packages():
+    packages = set()
+    for lock in ROOT.glob("*/locks/v*.json"):
+        try:
+            packages.update(item["name"] for item in json.loads(lock.read_text()).get("packages", []) if isinstance(item.get("name"), str))
+        except (OSError, json.JSONDecodeError):
+            continue
+    print("\n".join(sorted(packages)))
+
+
+def usage():
+    print("""Usage: lumen project <command> [arguments]
+
+Commands:
+  init [directory] --name NAME --description TEXT
+  list | status [project] | doctor [project]
+  prepare [project] | shell [project] | run [project] | compile [project]
+  save [project] [--label TEXT] | versions [project]
+  restore [project] --version VERSION --yes
+  diff [project] VERSION_A VERSION_B | remove PROJECT --yes
+
+Compatibility form: lumen project PROJECT --run|--compile|--shell|--save|--list
+""")
+
+
+def main(arguments):
+    if not arguments or arguments[0] in ("help", "--help", "-h"):
+        usage(); return
+    require_root()
+    if arguments and arguments[0] == "protected-archives":
+        protected_archives(); return
+    if arguments and arguments[0] == "protected-packages":
+        protected_packages(); return
+    if arguments and arguments[0] == "shell-config":
+        if len(arguments) != 2:
+            die("usage: lumen shell --dir DIRECTORY --config DIRECTORY/project.lumen", 2)
+        ident, cfg = register(Path(arguments[1]))
+        args = [SHELL]
+        for package in cfg["packages"]: args += ["--package", package]
+        args += ["--dir", str(cfg["workspace"])]
+        raise SystemExit(run(args, check=False).returncode)
+    command, rest = arguments[0], arguments[1:]
+    if command == "init":
+        directory = Path(".")
+        if rest and not rest[0].startswith("--"):
+            directory, rest = Path(rest[0]), rest[1:]
+        if len(rest) != 4 or rest[0] != "--name" or rest[2] != "--description":
+            die("usage: lumen project init [directory] --name NAME --description TEXT", 2)
+        _, uid, gid = caller_ids()
+        directory = directory.resolve()
+        created = not directory.exists()
+        directory.mkdir(parents=True, exist_ok=True)
+        if created:
+            os.chown(directory, uid, gid)
+        if not os.access(directory, os.W_OK): die(f"directory is not writable: {directory}")
+        write_template(directory, rest[1], rest[3], uid, gid)
+        ident, _ = register(directory)
+        print(f"Created project.lumen and registered {rest[1]} as {ident}.")
+        return
+    if command == "list":
+        for ident, record in sorted(load_index()["projects"].items(), key=lambda item: item[1]["name"].lower()):
+            print(f"{record['name']}\t{ident}\t{record['path']}")
+        return
+    if command == "remove":
+        if len(rest) != 2 or rest[1] != "--yes": die("usage: lumen project remove PROJECT --yes", 2)
+        ident, _, index = project_record(rest[0]); shutil.rmtree(ROOT / ident, ignore_errors=True); del index["projects"][ident]; atomic_json(INDEX, index)
+        print(f"Removed Lumen metadata for {rest[0]}; project files were not touched."); return
+    # Accept subcommands and the documented PROJECT --action compatibility form.
+    actions = {"status", "doctor", "prepare", "shell", "run", "compile", "save", "versions", "restore", "diff"}
+    selector = None
+    if command not in actions:
+        selector, rest = command, rest
+        if not rest or not rest[0].startswith("--"): die(f"unknown project command: {command}", 2)
+        command, rest = rest[0][2:], rest[1:]
+        if command == "list": command = "versions"
+    if command not in actions: die(f"unknown project command: {command}", 2)
+    if rest and not rest[0].startswith("--") and selector is None:
+        selector, rest = rest[0], rest[1:]
+    ident, record, _ = project_record(selector)
+    cfg = parse_config(Path(record["path"]))
+    if command in ("status", "doctor"):
+        show_status(ident, record, cfg); return
+    if command == "prepare": prepare_lock(ident, cfg); print("Project environment prepared."); return
+    if command == "shell":
+        args = [SHELL]
+        for package in cfg["packages"]: args += ["--package", package]
+        args += ["--dir", str(cfg["workspace"])]
+        raise SystemExit(run(args, check=False).returncode)
+    if command in ("run", "compile"):
+        prepare_lock(ident, cfg)
+        raise SystemExit(run_in_environment(cfg, cfg["exec"] if command == "run" else cfg["compile"]))
+    if command == "save":
+        label = rest[1] if len(rest) == 2 and rest[0] == "--label" else ""
+        if rest and not label: die("usage: lumen project save [project] [--label TEXT]", 2)
+        create_snapshot(ident, cfg, label); return
+    if command == "versions":
+        for item in versions(ident): print(f"{item.get('version')}\t{item.get('created_at')}\t{item.get('label', '')}")
+        return
+    if command == "restore":
+        if len(rest) != 3 or rest[0] != "--version" or rest[2] != "--yes": die("usage: lumen project restore [project] --version VERSION --yes", 2)
+        restore_snapshot(ident, cfg, rest[1], True); return
+    if command == "diff":
+        if len(rest) != 2: die("usage: lumen project diff [project] VERSION_A VERSION_B", 2)
+        with tempfile.TemporaryDirectory(prefix="lumen-project-diff.") as temporary:
+            left, right = Path(temporary) / "left", Path(temporary) / "right"; left.mkdir(); right.mkdir()
+            for version, destination in zip(rest, (left, right)):
+                source = ROOT / ident / "snapshots" / f"{version}.tar.zst"
+                if not source.is_file(): die(f"snapshot not found: {version}")
+                run(["tar", "--zstd", "-xf", str(source), "-C", str(destination)])
+            raise SystemExit(run(["diff", "-ruN", str(left), str(right)], check=False).returncode)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
