@@ -32,6 +32,7 @@ grep -q 'cryptsetup luksFormat' "$root_dir/iso/airootfs/usr/local/bin/lumen-offl
 grep -q 'cryptdevice=UUID=' "$root_dir/iso/airootfs/usr/local/bin/lumen-offline-install"
 grep -q "jq -e '.encryption == true'" "$root_dir/iso/airootfs/usr/local/bin/lumen-offline-install"
 grep -q 'wipefs -af "\$root"' "$root_dir/iso/airootfs/usr/local/bin/lumen-offline-install"
+grep -q 'if \[\[ "\$crypt_open" == true \]\]; then' "$root_dir/iso/airootfs/usr/local/bin/lumen-offline-install"
 grep -q 'Full-disk encryption' "$root_dir/iso/airootfs/usr/local/share/lumen-installer/app.py"
 grep -qx 'cryptsetup' "$root_dir/profiles/base/packages.pacman"
 grep -qx 'python' "$root_dir/profiles/base/packages.pacman"

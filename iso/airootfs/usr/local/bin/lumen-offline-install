@@ -141,4 +141,6 @@ rm -f "$config"
 sync
 trap - EXIT
 umount -R /mnt
-[[ "$crypt_open" == true ]] && cryptsetup close lumen-root
+if [[ "$crypt_open" == true ]]; then
+  cryptsetup close lumen-root
+fi
