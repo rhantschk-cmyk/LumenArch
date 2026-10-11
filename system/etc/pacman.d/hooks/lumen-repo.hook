@@ -7,4 +7,8 @@ Target = *
 [Action]
 Description = Updating the Lumen local package repository…
 When = PostTransaction
-Exec = /usr/lib/lumen/lumen-repo-sync --from-cache
+# pacstrap uses the live system hook configuration while constructing a new
+# root.  The root already has /usr/bin/sh once bash is installed, but it does
+# not yet contain Lumen's helper.  Do nothing for that bootstrap transaction;
+# execute normally everywhere Lumen itself is present.
+Exec = /usr/bin/sh -c '[ ! -x /usr/lib/lumen/lumen-repo-sync ] || exec /usr/lib/lumen/lumen-repo-sync --from-cache'
