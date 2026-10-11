@@ -41,7 +41,7 @@ valid_package_name() {
 }
 
 cleanup() {
-  if [[ -n "$shell_root" && "$shell_root" == /var/tmp/lumen-shell.* && -d "$shell_root" ]]; then
+  if [[ -n "$shell_root" && "$shell_root" == /run/lumen-shell/root.* && -d "$shell_root" ]]; then
     rm -rf -- "$shell_root"
   fi
   if [[ -n "$temporary_config" && -f "$temporary_config" ]]; then
@@ -84,7 +84,12 @@ download_closure() {
 }
 
 bootstrap_environment() {
-  shell_root=$(mktemp -d /var/tmp/lumen-shell.XXXXXX)
+  # /var/tmp is often mounted noexec. A container root stored there produces
+  # the misleading "bash: Permission denied" even though bash itself is 0755.
+  # /run is an executable, boot-local tmpfs and is ideal for this disposable
+  # root filesystem.
+  install -d -m 0700 /run/lumen-shell
+  shell_root=$(mktemp -d /run/lumen-shell/root.XXXXXX)
   if pacstrap -G -C "$temporary_config" "$shell_root" bash coreutils vim "$package"; then
     return
   fi
@@ -92,7 +97,7 @@ bootstrap_environment() {
   rm -rf -- "$shell_root"
   shell_root=''
   download_closure
-  shell_root=$(mktemp -d /var/tmp/lumen-shell.XXXXXX)
+  shell_root=$(mktemp -d /run/lumen-shell/root.XXXXXX)
   pacstrap -G -C "$temporary_config" "$shell_root" bash coreutils vim "$package"
 }
 
