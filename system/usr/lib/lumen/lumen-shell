@@ -220,7 +220,7 @@ echo "Entering temporary Lumen shell for: ${packages[*]}"
 echo 'Run exit to remove the environment. Host packages are unchanged.'
 if [[ -n "$workspace_dir" ]]; then
   echo "Host directory mounted at /workspace: $workspace_dir"
-  nspawn_args=(--directory="$shell_root" --register=no --uid="$shell_uid"
+  nspawn_args=(--directory="$shell_root" --register=no --as-pid2 --uid="$shell_uid"
     --chdir=/workspace --bind="$workspace_dir:/workspace"
     --setenv="TERM=${TERM:-xterm-256color}" /usr/bin/bash)
   if [[ -n "$command_to_run" ]]; then nspawn_args+=(-lc "$command_to_run"); else nspawn_args+=(-l); fi
