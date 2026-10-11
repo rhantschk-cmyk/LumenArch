@@ -377,6 +377,7 @@ lumen project run
 lumen project save --label "first working build"
 lumen project versions
 lumen project example --run
+lumen project example --run --version v000001
 ```
 
 The shell shortcut is equivalent and registers the manifest if necessary:
@@ -400,6 +401,7 @@ working tree:
 ```bash
 lumen project restore --version v000001 --yes
 lumen project diff v000001 v000002
+lumen project example --run --version v000001  # source and package lock
 ```
 
 Saved snapshot locks protect their package archives: `lumen repo prune` retains

@@ -14,6 +14,7 @@ packages=()
 command_to_run=''
 lock_file=''
 prepare_only=false
+offline_only=false
 
 if [[ -r "$config_file" ]]; then
   source "$config_file"
@@ -45,6 +46,8 @@ Options:
   --command COMMAND     run COMMAND in the environment instead of an interactive shell
   --prepare             resolve packages and optionally write a lock, then exit
   --lock-file PATH      write the resolved package list to PATH
+  --repo-dir PATH       use this local package repository instead of Lumen's default
+  --offline-only        never download missing archives; fail instead
 EOF
 }
 
@@ -84,6 +87,7 @@ EOF
 }
 
 download_closure() {
+  [[ "$offline_only" == false ]] || { echo 'Required archive is absent from the locked local repository.' >&2; return 1; }
   echo 'The local repository is missing part of this package closure.'
   echo 'Downloading the required official archives into the Lumen repository…'
   temporary_db=$(mktemp -d /var/tmp/lumen-shell-db.XXXXXX)
@@ -169,6 +173,16 @@ while (($#)); do
       ;;
     --prepare)
       prepare_only=true
+      shift
+      ;;
+    --repo-dir)
+      [[ $# -eq 2 ]] || { usage >&2; exit 2; }
+      REPO_DIR=$(realpath -e -- "$2")
+      [[ -d "$REPO_DIR" ]] || { echo "Not a repository directory: $2" >&2; exit 2; }
+      shift 2
+      ;;
+    --offline-only)
+      offline_only=true
       shift
       ;;
     *) usage >&2; exit 2 ;;

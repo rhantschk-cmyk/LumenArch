@@ -214,16 +214,58 @@ def prepare_lock(ident, cfg, version="current"):
     return destination
 
 
-def run_in_environment(cfg, command):
+def load_version_lock(ident, version):
+    path = lock_path(ident, version)
+    if not path.is_file():
+        die(f"package lock not found for snapshot: {version}")
+    try:
+        packages = json.loads(path.read_text()).get("packages", [])
+    except json.JSONDecodeError:
+        die(f"invalid package lock for snapshot: {version}")
+    if not packages:
+        die(f"empty package lock for snapshot: {version}")
+    return packages
+
+
+def locked_repository(packages):
+    temporary = tempfile.TemporaryDirectory(prefix="lumen-project-repo.", dir="/run")
+    directory = Path(temporary.name)
+    for package in packages:
+        archive = package.get("archive")
+        checksum = package.get("sha256")
+        if not isinstance(archive, str) or not isinstance(checksum, str) or "/" in archive:
+            temporary.cleanup(); die("project package lock contains an invalid archive")
+        source = REPO / archive
+        if not source.is_file():
+            temporary.cleanup(); die(f"locked archive is missing: {archive}")
+        with source.open("rb") as handle:
+            if hashlib.file_digest(handle, "sha256").hexdigest() != checksum:
+                temporary.cleanup(); die(f"locked archive checksum changed: {archive}")
+        os.link(source, directory / archive)
+    archives = [str(item) for item in directory.glob("*.pkg.tar.*") if not item.name.endswith(".sig")]
+    run(["repo-add", str(directory / "lumen-local.db.tar.gz"), *archives])
+    os.link(directory / "lumen-local.db.tar.gz", directory / "lumen-local.db")
+    return temporary, directory
+
+
+def run_in_environment(cfg, command, packages=None):
     if not command:
         die("the requested command is empty in project.lumen")
     if cfg["mode"] == "host":
+        if packages is not None:
+            die("version-pinned runs require Environment.Mode = shell")
         return run(["/usr/bin/bash", "-lc", command], cwd=cfg["workspace"], check=False).returncode
     args = [SHELL]
     for package in cfg["packages"]:
         args += ["--package", package]
     args += ["--dir", str(cfg["workspace"]), "--command", command]
-    return run(args, check=False).returncode
+    if packages is None:
+        return run(args, check=False).returncode
+    temporary, directory = locked_repository(packages)
+    try:
+        return run(args + ["--repo-dir", str(directory), "--offline-only"], check=False).returncode
+    finally:
+        temporary.cleanup()
 
 
 def next_version(ident):
@@ -418,8 +460,13 @@ def main(arguments):
         args += ["--dir", str(cfg["workspace"])]
         raise SystemExit(run(args, check=False).returncode)
     if command in ("run", "compile"):
-        prepare_lock(ident, cfg)
-        raise SystemExit(run_in_environment(cfg, cfg["exec"] if command == "run" else cfg["compile"]))
+        version_packages = None
+        if rest:
+            if len(rest) != 2 or rest[0] != "--version": die(f"usage: lumen project {command} [project] [--version VERSION]", 2)
+            version_packages = load_version_lock(ident, rest[1])
+        else:
+            prepare_lock(ident, cfg)
+        raise SystemExit(run_in_environment(cfg, cfg["exec"] if command == "run" else cfg["compile"], version_packages))
     if command == "save":
         label = rest[1] if len(rest) == 2 and rest[0] == "--label" else ""
         if rest and not label: die("usage: lumen project save [project] [--label TEXT]", 2)
