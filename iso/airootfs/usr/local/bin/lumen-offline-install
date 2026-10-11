@@ -12,9 +12,11 @@ disk=$(jq -r .disk "$config")
 hostname=$(jq -r '.hostname // "lumen"' "$config")
 keymap=$(jq -r '.keymap // "de"' "$config")
 filesystem=$(jq -r '.filesystem // "ext4"' "$config")
-# jq's `//` also falls back for the Boolean value false.  Preserve an explicit
-# unchecked installer checkbox and default only when older config files omit it.
-encryption=$(jq -r 'if has("encryption") then .encryption else true end' "$config")
+# Encryption is opt-in at this boundary: only the JSON Boolean true may enable
+# LUKS.  In particular, false, null, a missing field, or malformed input must
+# never result in an unexpected encrypted target.
+encryption=false
+if jq -e '.encryption == true' "$config" >/dev/null; then encryption=true; fi
 encryption_password=$(jq -r '.encryption_password // empty' "$config")
 mapfile -t requested_profiles < <(jq -r '.profiles[]?' "$config")
 valid_profiles=(base desktop developer creator gaming)
@@ -49,6 +51,11 @@ sgdisk -n 1:0:+1G -t 1:ef00 -c 1:LUMEN_EFI "$disk"
 sgdisk -n 2:0:0 -t 2:8300 -c 2:LUMEN_ROOT "$disk"
 partprobe "$disk"; sleep 2
 if [[ "$disk" == *nvme* || "$disk" == *mmcblk* ]]; then efi="${disk}p1"; root="${disk}p2"; else efi="${disk}1"; root="${disk}2"; fi
+# Deleting a partition table does not erase filesystem or LUKS signatures in
+# the new partitions' data area.  Remove them before formatting so an earlier
+# encrypted installation cannot leak into an unencrypted one.
+wipefs -af "$efi"
+wipefs -af "$root"
 mkfs.fat -F32 "$efi"
 luks_uuid=""
 root_target="$root"
