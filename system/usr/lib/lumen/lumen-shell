@@ -82,8 +82,11 @@ write_local_config() {
   # (notably Lumen's repository synchronizer) do not exist there yet, so
   # executing them makes pacstrap fail after a successful transaction.
   # Keep the normal packaged hooks, but replace the host custom hook dir with
-  # an empty disposable one for this bootstrap only.
+  # a disposable override for this bootstrap only.  Pacman can retain an
+  # inherited custom HookDir, so additionally mask this exact host hook using
+  # Pacman's documented same-name /dev/null override mechanism.
   temporary_hook_dir=$(mktemp -d /var/tmp/lumen-shell-hooks.XXXXXX)
+  ln -s /dev/null "$temporary_hook_dir/lumen-repo.hook"
   cat > "$temporary_config" <<EOF
 [options]
 Architecture = auto
