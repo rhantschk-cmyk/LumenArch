@@ -1,8 +1,42 @@
 #!/usr/bin/env bash
-# Selecting a history entry restores it to both Wayland clipboard selections.
+# Global Wayland clipboard actions and the interactive history picker.
 set -Eeuo pipefail
 
-entry=$(cliphist list | fuzzel --dmenu --prompt='Clipboard  ') || exit 0
-[[ -n "$entry" ]] || exit 0
-printf '%s' "$entry" | cliphist decode | wl-copy
-printf '%s' "$entry" | cliphist decode | wl-copy --primary
+restore() {
+  local entry="$1"
+  [[ -n "$entry" ]] || return 1
+  printf '%s' "$entry" | cliphist decode | wl-copy
+  printf '%s' "$entry" | cliphist decode | wl-copy --primary
+}
+
+copy_primary() {
+  # Text selections (including Alacritty selections) live in PRIMARY.  Promote
+  # that selection to the normal clipboard; the running wl-paste watcher then
+  # records it in cliphist as well.
+  wl-paste --primary --no-newline | wl-copy
+}
+
+paste_latest() {
+  local entry window_class
+  entry=$(cliphist list | sed -n '1p')
+  restore "$entry"
+  window_class=$(hyprctl activewindow -j | jq -r '.class // empty')
+  if [[ "$window_class" =~ ^(Alacritty|foot|kitty|org\.wezfurlong\.wezterm)$ ]]; then
+    wtype -M ctrl -M shift -k v -m shift -m ctrl
+  else
+    wtype -M ctrl -k v -m ctrl
+  fi
+}
+
+case "${1:-menu}" in
+  copy-primary) copy_primary ;;
+  paste-latest) paste_latest ;;
+  menu)
+    entry=$(cliphist list | fuzzel --dmenu --prompt='Clipboard  ') || exit 0
+    restore "$entry"
+    ;;
+  *)
+    echo 'Usage: lumen-clipboard [copy-primary|paste-latest|menu]' >&2
+    exit 2
+    ;;
+esac
