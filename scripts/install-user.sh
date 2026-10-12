@@ -32,4 +32,7 @@ while IFS= read -r -d '' source; do
 done < <(find "$source_dir" -type f -print0)
 
 mkdir -p "$HOME/Pictures/Screenshots" "$HOME/.local/bin"
-echo 'User configuration installed. Log out and select Hyprland in SDDM.'
+if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] && command -v hyprctl >/dev/null 2>&1; then
+  hyprctl reload || echo 'Hyprland configuration was installed; reload it after returning to the session.' >&2
+fi
+echo 'User configuration installed.'
