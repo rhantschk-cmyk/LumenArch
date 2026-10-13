@@ -12,6 +12,7 @@ ShellRoot {
     property real previousCpuTotal: -1
     property string cpuText: "CPU --%"
     property string ramText: "RAM --"
+    property var omarchyPlugins: []
 
     function updateMetrics(output) {
         const values = output.trim().split(/\s+/)
@@ -30,6 +31,16 @@ ShellRoot {
         previousCpuBusy = busy
         previousCpuTotal = total
         ramText = "RAM " + (usedMemory / 1048576).toFixed(1) + "/" + (totalMemory / 1048576).toFixed(1) + "G"
+    }
+
+    function updateOmarchyPlugins(output) {
+        try {
+            const result = JSON.parse(output)
+            omarchyPlugins = Array.isArray(result.plugins) ? result.plugins : []
+        } catch (error) {
+            omarchyPlugins = []
+            console.warn("Lumen could not read compatible Omarchy widgets: " + error)
+        }
     }
 
     Process {
@@ -51,6 +62,36 @@ ShellRoot {
         command: ["swaync-client", "-t"]
     }
 
+    // The importer deliberately supports only Omarchy's public, small
+    // bar-widget API. It does not make Lumen depend on Omarchy's shell.
+    Process {
+        id: omarchyPluginScanner
+        command: [Quickshell.env("HOME") + "/.config/lumen/bin/lumen-omarchy", "scan", "--json"]
+        running: true
+        stdout: StdioCollector {
+            onStreamFinished: root.updateOmarchyPlugins(this.text)
+        }
+    }
+
+    Process {
+        id: omarchyCommand
+    }
+
+    QtObject {
+        id: omarchyBar
+        property string fontFamily: "JetBrainsMono Nerd Font"
+        property bool vertical: false
+        property int barSize: 26
+        property color foreground: "#cdd6f4"
+        property color background: "#313244"
+        property color urgent: "#f38ba8"
+
+        function run(command) {
+            omarchyCommand.command = ["sh", "-c", command]
+            omarchyCommand.running = true
+        }
+    }
+
     Timer {
         interval: 1000
         running: true
@@ -63,6 +104,13 @@ ShellRoot {
         running: true
         repeat: true
         onTriggered: metricsProcess.running = true
+    }
+
+    Timer {
+        interval: 5000
+        running: true
+        repeat: true
+        onTriggered: omarchyPluginScanner.running = true
     }
 
     Variants {
@@ -99,8 +147,8 @@ ShellRoot {
                                 delegate: Rectangle {
                                     required property var modelData
                                     visible: modelData.id > 0 && modelData.monitor === Hyprland.monitorFor(panel.screen)
-                                    implicitWidth: 23
-                                    implicitHeight: 23
+                                    width: 23
+                                    height: 23
                                     radius: 7
                                     color: modelData.focused ? "#cba6f7" : modelData.urgent ? "#f38ba8" : "#45475a"
 
@@ -115,13 +163,32 @@ ShellRoot {
                                 }
                             }
                         }
+                        Repeater {
+                            model: root.omarchyPlugins
+                            delegate: Loader {
+                                required property var modelData
+                                visible: status === Loader.Ready
+                                source: modelData.entryPoint
+                                Layout.preferredWidth: item ? item.implicitWidth : 0
+                                Layout.preferredHeight: item ? item.implicitHeight : 0
+
+                                onLoaded: {
+                                    // Omarchy widgets expect these values to be supplied by
+                                    // their host. Their documented API permits them to be
+                                    // null during construction, so set them after loading.
+                                    item.bar = omarchyBar
+                                    item.moduleName = modelData.id
+                                    item.settings = ({})
+                                }
+                            }
+                        }
                         Item { Layout.fillWidth: true }
                         Text { text: "󰍛  " + root.cpuText; color: "#89b4fa"; font.family: "JetBrainsMono Nerd Font" }
                         Text { text: "󰘚  " + root.ramText; color: "#a6e3a1"; font.family: "JetBrainsMono Nerd Font" }
                         Text { text: root.timeText; color: "#cdd6f4"; font.family: "JetBrainsMono Nerd Font" }
                         Rectangle {
-                            implicitWidth: 28
-                            implicitHeight: 26
+                            width: 28
+                            height: 26
                             radius: 7
                             color: "transparent"
 

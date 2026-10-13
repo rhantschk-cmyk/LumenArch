@@ -40,6 +40,7 @@ Everyday commands:
   shell --dir path --config FILE enter the environment declared by project.lumen
   project <command>              manage reproducible local coding projects
   snapshot <target> <action>     manage local system and directory snapshots
+  omarchy <command>              manage compatible Omarchy bar widgets in Lumen
   appearance <dark|light>        set GTK and portal colour preference
   default get <role>             show the default browser, editor, or file-manager
   default set <role> <desktop>   set a .desktop application for a role
@@ -78,6 +79,15 @@ Commands:
   unhold <package>     remove that update hold
   list-holds           show all Lumen-managed holds
 EOF
+}
+
+omarchy_plugins() {
+  local helper="$HOME/.config/lumen/bin/lumen-omarchy"
+  [[ -x "$helper" ]] || {
+    echo "Lumen's Omarchy plugin helper is not installed. Run: lumen update" >&2
+    exit 1
+  }
+  exec "$helper" "$@"
 }
 
 set_gtk_setting() {
@@ -227,6 +237,10 @@ case "${1:-help}" in
   snapshot)
     shift
     exec sudo /usr/lib/lumen/lumen-snapshot "$@"
+    ;;
+  omarchy)
+    shift
+    omarchy_plugins "$@"
     ;;
   repo)
     shift

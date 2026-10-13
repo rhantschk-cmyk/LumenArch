@@ -26,6 +26,32 @@ If `lumen` is unavailable, clicking it shows a notification instead of making
 any system changes. Omarchy plugins are unsandboxed QML code, so review the
 repository before installing it.
 
+### Using Omarchy widgets in Lumen
+
+Lumen also supports the other direction: it can discover compatible Omarchy
+**bar-widget** plugins and place enabled ones in the Lumen Quickshell bar. This
+does not install Omarchy, start its shell, or make Lumen depend on it. Put a
+plugin in Omarchy's normal user-plugin location (for example by cloning it)
+and enable it from Lumen:
+
+```bash
+git clone <plugin-repository> ~/.config/omarchy/plugins/<plugin-id>
+lumen omarchy list
+lumen omarchy enable <plugin-id>
+```
+
+`lumen omarchy disable <plugin-id>` hides a widget without deleting or
+modifying its files. The bar refreshes its enabled-widget list automatically
+within a few seconds.
+
+This is intentionally an ABI compatibility layer, not a claim that every
+Omarchy plugin can run everywhere: supported plugins must declare the
+`bar-widget` kind and use its public `BarWidget` / `WidgetButton` API (including
+the injected `bar`, `moduleName`, and `settings` properties). Plugins requiring
+Omarchy's private shell APIs, panels, overlays, menus, services, or a complete
+replacement bar are not supported. Like all QML shell extensions, imported
+widgets run with the desktop user's permissions; only enable sources you trust.
+
 > **Status and safety:** Lumen currently targets UEFI systems and deliberately
 > erases the complete selected disk. ext4 and Btrfs are supported. The guided
 > installer enables LUKS2 encryption of the system partition by default; the

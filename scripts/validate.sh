@@ -20,7 +20,10 @@ grep -q 'xdg-terminal-exec -e lumen center' "$root_dir/omarchy/BarWidget.qml"
 for script in "$root_dir"/scripts/*.sh; do bash -n "$script"; done
 for script in "$root_dir"/iso/airootfs/usr/local/bin/*; do bash -n "$script"; done
 for script in "$root_dir"/home/.config/lumen/scripts/*.sh; do bash -n "$script"; done
-for script in "$root_dir"/home/.config/lumen/bin/*; do bash -n "$script"; done
+for script in "$root_dir"/home/.config/lumen/bin/*; do
+  [[ "$script" == "$root_dir/home/.config/lumen/bin/lumen-omarchy" ]] && continue
+  bash -n "$script"
+done
 for script in "$root_dir"/system/usr/local/bin/* "$root_dir"/system/usr/lib/lumen/*; do
   [[ "$script" == "$root_dir/system/usr/lib/lumen/lumen-project" ]] && continue
   bash -n "$script"
@@ -41,8 +44,15 @@ grep -q 'import Quickshell.Hyprland' "$root_dir/home/.config/quickshell/lumen/sh
 grep -q 'Hyprland.workspaces' "$root_dir/home/.config/quickshell/lumen/shell.qml"
 grep -q 'swaync-client' "$root_dir/home/.config/quickshell/lumen/shell.qml"
 grep -q 'memoryAvailable' "$root_dir/home/.config/quickshell/lumen/shell.qml"
+grep -q 'omarchyPluginScanner' "$root_dir/home/.config/quickshell/lumen/shell.qml"
+grep -q 'modelData.entryPoint' "$root_dir/home/.config/quickshell/lumen/shell.qml"
+test -f "$root_dir/home/.config/quickshell/lumen/qs/Ui/BarWidget.qml"
+test -f "$root_dir/home/.config/quickshell/lumen/qs/Ui/WidgetButton.qml"
+test -f "$root_dir/home/.config/quickshell/lumen/qs/Commons/Color.qml"
+test -f "$root_dir/home/.config/quickshell/lumen/qs/Commons/Style.qml"
 grep -q 'hl.on("hyprland.start"' "$root_dir/home/.config/hypr/hyprland.lua"
 grep -q 'hl.exec_cmd("quickshell -c lumen")' "$root_dir/home/.config/hypr/hyprland.lua"
+! grep -q 'quickshell -c lumen -r' "$root_dir/home/.config/hypr/hyprland.lua"
 grep -q 'alias cd=.z.' "$root_dir/home/.zshrc"
 grep -q 'lumen/bin/' "$root_dir/scripts/install-user.sh"
 grep -q 'hyprctl reload' "$root_dir/scripts/install-user.sh"
@@ -61,6 +71,9 @@ grep -qx 'cryptsetup' "$root_dir/profiles/base/packages.pacman"
 grep -qx 'python' "$root_dir/profiles/base/packages.pacman"
 test -x "$root_dir/home/.config/lumen/bin/lumen-applications"
 test -x "$root_dir/home/.config/lumen/bin/lumen-clipboard"
+test -x "$root_dir/home/.config/lumen/bin/lumen-omarchy"
+python -c 'import sys; compile(open(sys.argv[1], encoding="utf-8").read(), sys.argv[1], "exec")' "$root_dir/home/.config/lumen/bin/lumen-omarchy"
+grep -q 'omarchy <command>' "$root_dir/system/usr/local/bin/lumen"
 grep -q 'copy-primary' "$root_dir/home/.config/hypr/hyprland.lua"
 grep -q 'paste-latest' "$root_dir/home/.config/hypr/hyprland.lua"
 grep -q 'SUPER + SHIFT + F' "$root_dir/home/.config/hypr/hyprland.lua"

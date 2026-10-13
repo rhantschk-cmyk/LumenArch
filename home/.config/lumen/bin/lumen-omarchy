@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+"""Discover and enable compatible Omarchy bar-widget plugins for Lumen."""
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+HOME = Path.home()
+PLUGIN_ROOT = HOME / ".config/omarchy/plugins"
+STATE_FILE = HOME / ".config/lumen/omarchy-plugins.json"
+
+
+def usage() -> None:
+    print("""Usage: lumen omarchy <command> [plugin-id]
+
+Use compatible Omarchy bar-widget plugins in Lumen's Quickshell bar.
+
+Commands:
+  list                 list discovered compatible Omarchy plugins
+  enable <plugin-id>   show a discovered widget in Lumen's bar
+  disable <plugin-id>  hide a widget without altering its Omarchy install
+  scan --json          internal: print enabled widget entry points as JSON
+
+Lumen reads plugins from ~/.config/omarchy/plugins/. It never installs,
+updates, edits, or executes install hooks from Omarchy plugins. Only simple
+bar-widget plugins using Lumen's documented compatibility API are supported.
+""")
+
+
+def load_json(path: Path, fallback: object) -> object:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return fallback
+
+
+def enabled_ids() -> set[str]:
+    data = load_json(STATE_FILE, {"enabled": []})
+    entries = data.get("enabled", []) if isinstance(data, dict) else []
+    return {entry for entry in entries if isinstance(entry, str)}
+
+
+def save_enabled(entries: set[str]) -> None:
+    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    temporary = STATE_FILE.with_suffix(".tmp")
+    temporary.write_text(json.dumps({"enabled": sorted(entries)}, indent=2) + "\n", encoding="utf-8")
+    temporary.chmod(0o600)
+    temporary.replace(STATE_FILE)
+
+
+def compatible_plugins() -> tuple[list[dict[str, str]], list[str]]:
+    plugins: list[dict[str, str]] = []
+    errors: list[str] = []
+    if not PLUGIN_ROOT.is_dir():
+        return plugins, errors
+
+    for directory in sorted(PLUGIN_ROOT.iterdir()):
+        manifest_path = directory / "manifest.json"
+        if not directory.is_dir() or not manifest_path.is_file():
+            continue
+        manifest = load_json(manifest_path, {})
+        if not isinstance(manifest, dict):
+            errors.append(f"{directory.name}: invalid manifest.json")
+            continue
+        plugin_id = manifest.get("id")
+        entry_points = manifest.get("entryPoints")
+        kinds = manifest.get("kinds")
+        entry = entry_points.get("barWidget") if isinstance(entry_points, dict) else None
+        if not isinstance(plugin_id, str) or "bar-widget" not in (kinds or []) or not isinstance(entry, str):
+            continue
+        candidate = (directory / entry).resolve()
+        try:
+            candidate.relative_to(directory.resolve())
+        except ValueError:
+            errors.append(f"{plugin_id}: bar widget entry point escapes its plugin directory")
+            continue
+        if not candidate.is_file():
+            errors.append(f"{plugin_id}: missing bar widget entry point {entry}")
+            continue
+        plugins.append({
+            "id": plugin_id,
+            "name": str(manifest.get("name") or plugin_id),
+            "entryPoint": candidate.as_uri(),
+        })
+    return plugins, errors
+
+
+def main(arguments: list[str]) -> int:
+    if not arguments or arguments[0] in {"help", "-h", "--help"}:
+        usage()
+        return 0
+    command, *rest = arguments
+    plugins, errors = compatible_plugins()
+    by_id = {plugin["id"]: plugin for plugin in plugins}
+
+    if command == "scan" and rest == ["--json"]:
+        enabled = enabled_ids()
+        print(json.dumps({"plugins": [plugin for plugin in plugins if plugin["id"] in enabled], "errors": errors}))
+        return 0
+    if command == "list" and not rest:
+        enabled = enabled_ids()
+        if not plugins:
+            print("No compatible Omarchy bar-widget plugins found.")
+        for plugin in plugins:
+            status = "enabled" if plugin["id"] in enabled else "disabled"
+            print(f"{status:8}  {plugin['id']:36}  {plugin['name']}")
+        for error in errors:
+            print(f"warning: {error}", file=sys.stderr)
+        return 0
+    if command in {"enable", "disable"} and len(rest) == 1:
+        plugin_id = rest[0]
+        if plugin_id not in by_id:
+            print(f"Lumen cannot use an Omarchy bar-widget named: {plugin_id}", file=sys.stderr)
+            return 1
+        enabled = enabled_ids()
+        if command == "enable":
+            enabled.add(plugin_id)
+            print(f"Enabled Omarchy widget in Lumen: {plugin_id}")
+        else:
+            enabled.discard(plugin_id)
+            print(f"Disabled Omarchy widget in Lumen: {plugin_id}")
+        save_enabled(enabled)
+        return 0
+
+    usage()
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

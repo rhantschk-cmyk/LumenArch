@@ -111,7 +111,7 @@ hl.bind("SUPER + Escape", hl.dsp.exec_cmd("command -v hyprshutdown >/dev/null 2>
 hl.bind("Print", hl.dsp.exec_cmd([[grim "$HOME/Pictures/Screenshots/$(date +'%Y-%m-%d_%H-%M-%S').png"]]))
 hl.bind("SUPER + Print", hl.dsp.exec_cmd([[slurp | grim -g - "$HOME/Pictures/Screenshots/$(date +'%Y-%m-%d_%H-%M-%S').png"]]))
 hl.bind("SUPER + SHIFT + V", hl.dsp.exec_cmd("$HOME/.config/lumen/bin/lumen-clipboard"))
-hl.bind("SUPER + R", hl.dsp.exec_cmd("quickshell -c lumen -r"))
+hl.bind("SUPER + R", hl.dsp.exec_cmd("quickshell -c lumen"))
 
 hl.bind("XF86AudioRaiseVolume", hl.dsp.exec_cmd("wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+"), { repeating = true })
 hl.bind("XF86AudioLowerVolume", hl.dsp.exec_cmd("wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"), { repeating = true })
