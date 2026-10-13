@@ -23,8 +23,10 @@ valid_profiles=(base desktop developer creator gaming)
 
 [[ "$disk" == /dev/* && "$username" =~ ^[a-z_][a-z0-9_-]*$ && "$hostname" =~ ^[a-zA-Z0-9][a-zA-Z0-9-]{0,62}$ && "$keymap" =~ ^[a-zA-Z0-9_-]+$ && -e "/usr/share/zoneinfo/$timezone" ]] || exit 2
 [[ "$filesystem" == ext4 || "$filesystem" == btrfs ]] || exit 2
-[[ "$encryption" == true || "$encryption" == false ]] || exit 2
-[[ "$encryption" == false || -n "$encryption_password" ]] || { echo "Encryption password is required" >&2; exit 2; }
+if [[ "$encryption" == true && -z "$encryption_password" ]]; then
+  echo 'Encryption password is required' >&2
+  exit 2
+fi
 mapfile -t physical_disks < <(lsblk -dnro PATH,TYPE | awk '$2 == "disk" {print $1}')
 printf '%s\n' "${physical_disks[@]}" | grep -Fxq "$disk" || { echo "Refusing non-disk target: $disk" >&2; exit 2; }
 live_source=$(findmnt -nro SOURCE /run/archiso/bootmnt 2>/dev/null || true)

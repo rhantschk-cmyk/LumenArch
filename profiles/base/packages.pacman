@@ -15,3 +15,7 @@ nvidia-open
 btrfs-progs
 cryptsetup
 python
+jq
+pacman-contrib
+rsync
+zstd

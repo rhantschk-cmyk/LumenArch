@@ -1,0 +1,307 @@
+#!/usr/bin/env bash
+# Versioned, local Lumen snapshots for packages, configuration, repositories,
+# and explicitly selected directories.
+set -Eeuo pipefail
+
+snapshot_root=/var/lib/lumen/snapshots
+repo_config=/etc/lumen/repo.conf
+repo_dir=/var/lib/lumen/repo
+repo_name=lumen-local
+pacman_fragment=/etc/pacman.conf.d/lumen-local.conf
+snapshot_owner=${SUDO_USER:-root}
+
+[[ -r "$repo_config" ]] && source "$repo_config"
+: "${REPO_DIR:=$repo_dir}"
+: "${REPO_NAME:=$repo_name}"
+
+usage() {
+  cat <<'EOF'
+Usage: lumen snapshot <packages|environment|repo|dir|all> <action> [options]
+
+Actions:
+  create [PATH] [--name NAME]          create a snapshot; PATH is required for dir
+  list                                  list snapshots for this target
+  restore SNAPSHOT --yes [--target PATH]
+                                        restore a snapshot; --target is only for dir
+  clear --keep NUMBER                   retain the newest NUMBER snapshots
+  update SNAPSHOT [--name NAME]         create a fresh successor of SNAPSHOT
+
+Targets:
+  packages       installed package manifest (native and foreign packages)
+  environment    Lumen system configuration and the invoking user's desktop config
+  repo           /var/lib/lumen/repo including package archives
+  dir            one explicitly selected directory
+  all            packages, environment, and repository together
+
+Snapshots live locally under /var/lib/lumen/snapshots. Restore is explicit and
+creates an automatic pre-restore snapshot first. Package restore installs the
+saved native explicit package selection; it never removes other packages.
+EOF
+}
+
+die() { echo "lumen snapshot: $*" >&2; exit 1; }
+require_root() { [[ $EUID -eq 0 ]] || die 'this command must be run through sudo'; }
+valid_target() { [[ "$1" =~ ^(packages|environment|repo|dir|all)$ ]]; }
+valid_name() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; }
+valid_id() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]; }
+
+require_commands() {
+  local command
+  for command in "$@"; do
+    command -v "$command" >/dev/null 2>&1 || die "required command is unavailable: $command"
+  done
+}
+
+snapshot_dir() { printf '%s/%s/%s\n' "$snapshot_root" "$1" "$2"; }
+
+user_home() {
+  getent passwd "$snapshot_owner" | awk -F: '{print $6}'
+}
+
+make_id() {
+  local name=${1:-snapshot}
+  valid_name "$name" || die 'snapshot names may contain letters, numbers, dot, underscore, and hyphen'
+  printf '%s-%s\n' "$(date -u +%Y%m%dT%H%M%SZ)" "$name"
+}
+
+write_metadata() {
+  local target="$1" directory="$2" source_path="$3" relation="$4"
+  jq -n --arg target "$target" --arg id "$(basename -- "$directory")" \
+    --arg created "$(date -u --iso-8601=seconds)" --arg owner "$snapshot_owner" \
+    --arg source "$source_path" --arg relation "$relation" \
+    '{schema: 1, target: $target, id: $id, created_at: $created, owner: $owner, source: $source, updated_from: $relation}' \
+    > "$directory/metadata.json"
+}
+
+create_packages() {
+  local directory="$1"
+  pacman -Q > "$directory/packages.tsv"
+  pacman -Qqen | LC_ALL=C sort -u > "$directory/explicit-native.txt"
+  pacman -Qqem | LC_ALL=C sort -u > "$directory/explicit-foreign.txt"
+}
+
+create_environment() {
+  local directory="$1" home relative
+  home=$(user_home)
+  local -a candidates=(etc/lumen etc/pacman.conf etc/pacman.conf.d etc/sddm.conf.d)
+  local -a paths=()
+  [[ -n "$home" && -d "$home" ]] || die "could not determine home directory for $snapshot_owner"
+  for relative in "${candidates[@]}"; do
+    [[ -e "/$relative" ]] && paths+=("$relative")
+  done
+  for relative in .config/hypr .config/lumen .config/alacritty .config/fuzzel .config/gtk-3.0 .config/gtk-4.0 .config/nvim .config/quickshell .config/swaync .config/tmux .local/share/applications .zshrc; do
+    [[ -e "$home/$relative" ]] && paths+=("${home#/}/$relative")
+  done
+  ((${#paths[@]})) || die 'no Lumen environment files are available to snapshot'
+  tar --zstd --numeric-owner --acls --xattrs -C / -cf "$directory/environment.tar.zst" "${paths[@]}"
+}
+
+create_repo() {
+  local directory="$1"
+  [[ -d "$REPO_DIR" ]] || mkdir -p "$REPO_DIR"
+  tar --zstd --numeric-owner --acls --xattrs -C "$(dirname -- "$REPO_DIR")" -cf "$directory/repo.tar.zst" "$(basename -- "$REPO_DIR")"
+}
+
+create_directory() {
+  local directory="$1" source_path="$2"
+  [[ -d "$source_path" ]] || die "not a directory: $source_path"
+  tar --zstd --numeric-owner --acls --xattrs -C "$source_path" -cf "$directory/directory.tar.zst" .
+}
+
+create_snapshot() {
+  local target="$1" source_path="$2" name="$3" relation="${4:-}" id directory temporary
+  id=$(make_id "$name")
+  directory=$(snapshot_dir "$target" "$id")
+  [[ ! -e "$directory" ]] || die "snapshot already exists: $id"
+  install -d -m 0700 "$snapshot_root/$target"
+  temporary=$(mktemp -d "$snapshot_root/$target/.pending.XXXXXX")
+  if ! (
+    case "$target" in
+      packages) create_packages "$temporary" ;;
+      environment) create_environment "$temporary" ;;
+      repo) create_repo "$temporary" ;;
+      dir) create_directory "$temporary" "$source_path" ;;
+      all)
+        create_packages "$temporary"
+        create_environment "$temporary"
+        create_repo "$temporary"
+        ;;
+    esac
+    write_metadata "$target" "$temporary" "$source_path" "$relation"
+  ); then
+    rm -rf -- "$temporary"
+    die "could not create $target snapshot"
+  fi
+  mv -- "$temporary" "$directory"
+  echo "Created $target snapshot: $id"
+}
+
+metadata_file() {
+  local target="$1" id="$2" file
+  valid_id "$id" || die "invalid snapshot ID: $id"
+  file="$(snapshot_dir "$target" "$id")/metadata.json"
+  [[ -f "$file" ]] || die "snapshot not found: $id"
+  printf '%s\n' "$file"
+}
+
+restore_packages() {
+  local directory="$1" manifest="$directory/explicit-native.txt"
+  [[ -f "$manifest" ]] || die 'package manifest is missing'
+  mapfile -t packages < "$manifest"
+  ((${#packages[@]})) || { echo 'Saved native package selection is empty.'; return; }
+  pacman -Syu --needed --noconfirm "${packages[@]}"
+  if [[ -s "$directory/explicit-foreign.txt" ]]; then
+    echo 'Foreign/AUR package names were recorded but are not installed automatically:'
+    sed 's/^/  /' "$directory/explicit-foreign.txt"
+  fi
+}
+
+restore_environment() {
+  local directory="$1"
+  [[ -f "$directory/environment.tar.zst" ]] || die 'environment archive is missing'
+  tar --zstd --numeric-owner --acls --xattrs -xpf "$directory/environment.tar.zst" -C /
+}
+
+rebuild_restored_repo_database() {
+  local -a archives=()
+  local archive
+  shopt -s nullglob
+  for archive in "$REPO_DIR"/*.pkg.tar.*; do
+    [[ "$archive" == *.sig ]] || archives+=("$archive")
+  done
+  if ((${#archives[@]} == 0)); then
+    local db_path
+    db_path=$(pacman-conf DBPath 2>/dev/null || printf '/var/lib/pacman')
+    rm -f "$REPO_DIR/$REPO_NAME.db.tar.gz" "$REPO_DIR/$REPO_NAME.db" \
+      "${db_path%/}/sync/$REPO_NAME.db"
+    install -Dm644 /dev/null "$pacman_fragment"
+    return
+  fi
+  rm -f "$REPO_DIR/$REPO_NAME.db.tar.gz" "$REPO_DIR/$REPO_NAME.db"
+  repo-add "$REPO_DIR/$REPO_NAME.db.tar.gz" "${archives[@]}"
+  ln -f "$REPO_DIR/$REPO_NAME.db.tar.gz" "$REPO_DIR/$REPO_NAME.db"
+  local db_path
+  db_path=$(pacman-conf DBPath 2>/dev/null || printf '/var/lib/pacman')
+  install -Dm644 "$REPO_DIR/$REPO_NAME.db" "${db_path%/}/sync/$REPO_NAME.db"
+}
+
+restore_repo() {
+  local directory="$1" temporary
+  [[ -f "$directory/repo.tar.zst" ]] || die 'repository archive is missing'
+  temporary=$(mktemp -d /var/tmp/lumen-snapshot-repo.XXXXXX)
+  trap 'rm -rf -- "$temporary"' RETURN
+  tar --zstd -xpf "$directory/repo.tar.zst" -C "$temporary"
+  mkdir -p "$REPO_DIR"
+  rsync -a --delete "$temporary/$(basename -- "$REPO_DIR")/" "$REPO_DIR/"
+  rebuild_restored_repo_database
+  trap - RETURN
+  rm -rf -- "$temporary"
+}
+
+restore_directory() {
+  local directory="$1" target_path="$2" temporary
+  [[ -f "$directory/directory.tar.zst" ]] || die 'directory archive is missing'
+  [[ -n "$target_path" ]] || die 'directory snapshot has no restore target'
+  install -d -m 0755 "$target_path"
+  temporary=$(mktemp -d /var/tmp/lumen-snapshot-dir.XXXXXX)
+  trap 'rm -rf -- "$temporary"' RETURN
+  tar --zstd -xpf "$directory/directory.tar.zst" -C "$temporary"
+  rsync -a --delete "$temporary/" "$target_path/"
+  trap - RETURN
+  rm -rf -- "$temporary"
+}
+
+restore_snapshot() {
+  local target="$1" id="$2" override="$3" directory metadata source_path
+  directory=$(snapshot_dir "$target" "$id")
+  metadata=$(metadata_file "$target" "$id")
+  source_path=$(jq -r '.source // empty' "$metadata")
+  [[ -n "$override" ]] && source_path=$(realpath -m -- "$override")
+  create_snapshot "$target" "$source_path" auto-before "$id"
+  case "$target" in
+    packages) restore_packages "$directory" ;;
+    environment) restore_environment "$directory" ;;
+    repo) restore_repo "$directory" ;;
+    dir) restore_directory "$directory" "$source_path" ;;
+    all) restore_packages "$directory"; restore_environment "$directory"; restore_repo "$directory" ;;
+  esac
+  echo "Restored $target snapshot: $id"
+}
+
+list_snapshots() {
+  local target="$1" root="$snapshot_root/$target" metadata
+  [[ -d "$root" ]] || return 0
+  while IFS= read -r -d '' metadata; do
+    jq -r '[.id, .created_at, .source, .updated_from] | @tsv' "$metadata"
+  done < <(find "$root" -mindepth 2 -maxdepth 2 -name metadata.json -print0 | LC_ALL=C sort -z)
+}
+
+clear_snapshots() {
+  local target="$1" keep="$2" root="$snapshot_root/$target"
+  [[ "$keep" =~ ^[0-9]+$ ]] || die '--keep requires a non-negative number'
+  [[ -d "$root" ]] || return 0
+  mapfile -t directories < <(find "$root" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | LC_ALL=C sort -r)
+  local index
+  for ((index=keep; index<${#directories[@]}; index++)); do
+    rm -rf -- "$root/${directories[index]}"
+  done
+  echo "Kept ${keep} newest $target snapshot(s)."
+}
+
+if [[ "${1:-}" == -h || "${1:-}" == --help || "${1:-}" == help ]]; then
+  usage
+  exit 0
+fi
+
+require_root
+[[ $# -ge 2 ]] || { usage >&2; exit 2; }
+target="$1"; action="$2"; shift 2
+valid_target "$target" || { usage >&2; exit 2; }
+require_commands jq tar zstd pacman
+case "$target" in
+  dir) require_commands rsync ;;
+  repo|all) require_commands rsync repo-add pacman-conf ;;
+esac
+
+case "$action" in
+  create)
+    source_path=''
+    name=snapshot
+    if [[ "$target" == dir ]]; then
+      [[ $# -ge 1 && "$1" != --* ]] || die 'directory snapshots require a PATH'
+      source_path=$(realpath -e -- "$1"); shift
+    fi
+    if [[ $# -eq 2 && "$1" == --name ]]; then name="$2"; shift 2; fi
+    [[ $# -eq 0 ]] || { usage >&2; exit 2; }
+    create_snapshot "$target" "$source_path" "$name"
+    ;;
+  list)
+    [[ $# -eq 0 ]] || { usage >&2; exit 2; }
+    list_snapshots "$target"
+    ;;
+  restore)
+    [[ $# -ge 2 ]] || { usage >&2; exit 2; }
+    id="$1"; shift
+    target_path=''
+    if [[ "$target" == dir && $# -ge 2 && "$1" == --target ]]; then target_path="$2"; shift 2; fi
+    [[ $# -eq 1 && "$1" == --yes ]] || die 'restore changes data; repeat with --yes'
+    restore_snapshot "$target" "$id" "$target_path"
+    ;;
+  clear)
+    [[ $# -eq 2 && "$1" == --keep ]] || { usage >&2; exit 2; }
+    clear_snapshots "$target" "$2"
+    ;;
+  update)
+    [[ $# -ge 1 ]] || { usage >&2; exit 2; }
+    previous="$1"; shift
+    metadata=$(metadata_file "$target" "$previous")
+    source_path=$(jq -r '.source // empty' "$metadata")
+    name=update
+    if [[ $# -eq 2 && "$1" == --name ]]; then name="$2"; shift 2; fi
+    [[ $# -eq 0 ]] || { usage >&2; exit 2; }
+    [[ "$target" != dir || -d "$source_path" ]] || die "saved source directory no longer exists: $source_path"
+    create_snapshot "$target" "$source_path" "$name" "$previous"
+    ;;
+  -h|--help|help) usage ;;
+  *) usage >&2; exit 2 ;;
+esac

@@ -79,11 +79,8 @@ libnotify
 gum
 curl
 wget
-rsync
 openssh
 man-db
 man-pages
 tealdeer
 arch-install-scripts
-jq
-pacman-contrib

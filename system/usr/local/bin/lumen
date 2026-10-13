@@ -39,6 +39,7 @@ Everyday commands:
   shell <package> [--dir path]   enter a temporary CLI environment; optionally mount a work directory
   shell --dir path --config FILE enter the environment declared by project.lumen
   project <command>              manage reproducible local coding projects
+  snapshot <target> <action>     manage local system and directory snapshots
   appearance <dark|light>        set GTK and portal colour preference
   default get <role>             show the default browser, editor, or file-manager
   default set <role> <desktop>   set a .desktop application for a role
@@ -222,6 +223,10 @@ case "${1:-help}" in
   project)
     shift
     exec sudo /usr/lib/lumen/lumen-project "$@"
+    ;;
+  snapshot)
+    shift
+    exec sudo /usr/lib/lumen/lumen-snapshot "$@"
     ;;
   repo)
     shift

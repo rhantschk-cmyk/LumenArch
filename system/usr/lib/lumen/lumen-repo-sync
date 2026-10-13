@@ -95,6 +95,12 @@ Server = file://$REPO_DIR
 EOF
 }
 
+disable_pacman_source() {
+  # pacman.conf permanently includes this fragment. Keep a valid empty file
+  # when the local repository has no archives instead of deleting it.
+  install -Dm644 /dev/null "$pacman_fragment"
+}
+
 ensure_pacman_source_is_included() {
   local include_line='Include = /etc/pacman.conf.d/lumen-local.conf'
   grep -Fqx "$include_line" /etc/pacman.conf && return
@@ -137,7 +143,8 @@ sync_repository() {
   done
 
   if ((${#included[@]} == 0)); then
-    rm -f "$repo_db" "$REPO_DIR/$REPO_NAME.db" "$pacman_fragment" "$sync_database"
+    rm -f "$repo_db" "$REPO_DIR/$REPO_NAME.db" "$sync_database"
+    disable_pacman_source
     echo 'Lumen local repository has no included archives; Pacman source disabled.'
     return
   fi

@@ -100,7 +100,10 @@ EOF
 }
 
 download_closure() {
-  [[ "$offline_only" == false ]] || { echo 'Required archive is absent from the locked local repository.' >&2; return 1; }
+  if [[ "$offline_only" == true ]]; then
+    echo 'Required archive is absent from the locked local repository.' >&2
+    return 1
+  fi
   echo 'The local repository is missing part of this package closure.'
   echo 'Downloading the required official archives into the Lumen repository…'
   temporary_db=$(mktemp -d /var/tmp/lumen-shell-db.XXXXXX)
@@ -213,8 +216,10 @@ done
 if [[ -z "$workspace_dir" ]]; then
   workspace_dir=$(realpath -e -- .)
 fi
-[[ "$prepare_only" == false || -z "$command_to_run" ]] || { echo '--prepare and --command cannot be combined.' >&2; exit 2; }
-[[ -z "$command_to_run" || -n "$workspace_dir" ]] || { echo '--command requires --dir.' >&2; exit 2; }
+if [[ "$prepare_only" == true && -n "$command_to_run" ]]; then
+  echo '--prepare and --command cannot be combined.' >&2
+  exit 2
+fi
 command -v pacstrap >/dev/null || { echo 'pacstrap is unavailable; install arch-install-scripts.' >&2; exit 1; }
 command -v systemd-nspawn >/dev/null || { echo 'systemd-nspawn is unavailable.' >&2; exit 1; }
 [[ -x "$repo_sync" ]] || { echo 'Lumen repository helper is unavailable.' >&2; exit 1; }

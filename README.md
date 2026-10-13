@@ -209,6 +209,7 @@ lumen appearance dark
 lumen default set browser firefox.desktop
 lumen shell jq                       # temporary CLI environment; exit removes it
 lumen project init . --name demo --description "Example project"
+lumen snapshot all create --name before-upgrade
 ```
 
 Lumen's package archive has a deliberate split between settings and data:
@@ -278,6 +279,53 @@ controls updates. The two operations are intentionally separate.
 `lumen repo unexclude <package>` permits the package to be mirrored again, but
 does not recreate an archive that was removed by `exclude`. Run `lumen repo add
 <package>` (or install/update the package normally) to fetch it again.
+
+### Local snapshots
+
+`lumen snapshot` creates versioned, local recovery points under
+`/var/lib/lumen/snapshots/`. It has five independently managed targets:
+
+- `packages` records the installed package set. Restoring it installs missing
+  saved official packages but deliberately does not remove packages added
+  afterwards.
+- `environment` archives Lumen's system settings and the invoking user's
+  Lumen/desktop configuration.
+- `repo` archives the complete local package repository, including its package
+  archives.
+- `dir` archives one explicitly selected directory.
+- `all` combines the package manifest, environment, and local repository.
+
+Every target accepts the same actions: `create`, `list`, `restore`, `clear`,
+and `update`. `restore` is deliberately explicit and creates an automatic
+pre-restore snapshot before it changes anything. It therefore requires
+`--yes`.
+
+```bash
+# Name and inspect an all-system recovery point.
+lumen snapshot all create --name before-upgrade
+lumen snapshot all list
+
+# Restore it. This creates an automatic "auto-before-…" safety snapshot first.
+lumen snapshot all restore 20261013T120000Z-before-upgrade --yes
+
+# Keep only the three newest snapshots of this target.
+lumen snapshot all clear --keep 3
+
+# Make a fresh successor of an existing snapshot.
+lumen snapshot all update 20261013T120000Z-before-upgrade --name refreshed
+
+# Preserve a project directory, then restore it at its original path or a
+# different empty/existing directory.
+lumen snapshot dir create ~/code/demo --name working-tree
+lumen snapshot dir list
+lumen snapshot dir restore 20261013T120000Z-working-tree --yes
+lumen snapshot dir restore 20261013T120000Z-working-tree --target ~/tmp/demo-copy --yes
+```
+
+Use `lumen snapshot <target> --help` for the exact syntax. Snapshots are local
+archives, not a replacement for backups on separate storage. In particular,
+`environment`, `repo`, and `all` can consume substantial disk space; use
+`clear --keep NUMBER` once older recovery points are no longer needed.
 
 ### Temporary package shells
 
