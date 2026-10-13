@@ -28,6 +28,8 @@ grep -q 'hl.exec_cmd("quickshell -c lumen")' "$root_dir/home/.config/hypr/hyprla
 grep -q 'alias cd=.z.' "$root_dir/home/.zshrc"
 grep -q 'lumen/bin/' "$root_dir/scripts/install-user.sh"
 grep -q 'hyprctl reload' "$root_dir/scripts/install-user.sh"
+grep -q 'git -C "\$repo_dir" rebase origin/main' "$root_dir/home/.config/lumen/bin/lumenctl"
+grep -q 'rebase --abort' "$root_dir/home/.config/lumen/bin/lumenctl"
 grep -q 'Lumen wants to update' "$root_dir/scripts/install-system.sh"
 grep -q 'Continue? \[Y/n\]' "$root_dir/scripts/install-system.sh"
 grep -q 'chown -R "$user:$user" "/home/$user"' "$root_dir/iso/airootfs/usr/local/bin/lumen-offline-install"

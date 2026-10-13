@@ -15,16 +15,39 @@ run() {
   pause
 }
 
+update_source() {
+  local repo_dir="$1"
+  if ! git -C "$repo_dir" diff --quiet || ! git -C "$repo_dir" diff --cached --quiet; then
+    echo 'The Lumen source checkout contains uncommitted changes; refusing to overwrite them.' >&2
+    echo "Review them in: $repo_dir" >&2
+    return 1
+  fi
+  git -C "$repo_dir" fetch --prune origin || return
+  if git -C "$repo_dir" rebase origin/main; then
+    return 0
+  fi
+  echo 'Lumen source histories could not be reconciled automatically; the rebase was aborted.' >&2
+  git -C "$repo_dir" rebase --abort 2>/dev/null || true
+  return 1
+}
+
 update_lumen() {
   title
   local repo_dir="$HOME/.local/share/lumen-arch/source"
   mkdir -p "$(dirname "$repo_dir")"
   if [[ -d "$repo_dir/.git" ]]; then
-    run git -C "$repo_dir" pull --ff-only
+    if ! update_source "$repo_dir"; then
+      gum style --foreground 196 'Update stopped before changing Lumen files.'
+      pause
+      return
+    fi
   else
-    run git clone https://github.com/rhantschk-cmyk/LumenArch.git "$repo_dir"
+    if ! git clone https://github.com/rhantschk-cmyk/LumenArch.git "$repo_dir"; then
+      gum style --foreground 196 'Could not clone the Lumen source repository.'
+      pause
+      return
+    fi
   fi
-  [[ -d "$repo_dir/.git" ]] || return
   run "$repo_dir/scripts/install-user.sh"
   run sudo pacman -Syu
   command -v yay >/dev/null && run yay -Syu
