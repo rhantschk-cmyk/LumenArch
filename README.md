@@ -9,6 +9,23 @@ The installation medium contains a complete local Pacman repository. A target
 machine does **not** need an internet connection to install the kernel, drivers,
 desktop, profiles, applications, and their transitive dependencies.
 
+## Omarchy plugin
+
+Lumen can also be added to an existing Omarchy 4 / Quattro desktop as a normal
+bar-widget plugin. It does not replace Omarchy's shell, modify its keybinds,
+install packages, or use `sudo`; it simply adds a Lumen icon which opens the
+locally installed Lumen Control Center in the configured terminal.
+
+```bash
+omarchy plugin add https://github.com/rhantschk-cmyk/LumenArch.git --enable
+omarchy plugin validate ~/.config/omarchy/plugins/rhantschk-cmyk.lumen
+```
+
+The widget is useful on a host where the Lumen CLI has already been installed.
+If `lumen` is unavailable, clicking it shows a notification instead of making
+any system changes. Omarchy plugins are unsandboxed QML code, so review the
+repository before installing it.
+
 > **Status and safety:** Lumen currently targets UEFI systems and deliberately
 > erases the complete selected disk. ext4 and Btrfs are supported. The guided
 > installer enables LUKS2 encryption of the system partition by default; the

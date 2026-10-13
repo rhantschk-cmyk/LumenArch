@@ -3,6 +3,20 @@
 set -Eeuo pipefail
 root_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 
+python -c '
+import json
+import sys
+
+manifest = json.load(open(sys.argv[1], encoding="utf-8"))
+assert manifest["schemaVersion"] == 1
+assert manifest["id"] == "rhantschk-cmyk.lumen"
+assert manifest["kinds"] == ["bar-widget"]
+assert manifest["entryPoints"]["barWidget"] == "omarchy/BarWidget.qml"
+' "$root_dir/manifest.json"
+test -f "$root_dir/omarchy/BarWidget.qml"
+grep -q 'BarWidget' "$root_dir/omarchy/BarWidget.qml"
+grep -q 'xdg-terminal-exec -e lumen center' "$root_dir/omarchy/BarWidget.qml"
+
 for script in "$root_dir"/scripts/*.sh; do bash -n "$script"; done
 for script in "$root_dir"/iso/airootfs/usr/local/bin/*; do bash -n "$script"; done
 for script in "$root_dir"/home/.config/lumen/scripts/*.sh; do bash -n "$script"; done

@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "rhantschk-cmyk.lumen",
+  "name": "Lumen Control Center",
+  "version": "1.0.0",
+  "author": "Lumen Arch contributors",
+  "license": "MIT",
+  "description": "Open the installed Lumen Control Center from the Omarchy bar.",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "omarchy/BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Lumen",
+    "description": "A launcher for the locally installed Lumen Control Center.",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "left"
+  }
+}
