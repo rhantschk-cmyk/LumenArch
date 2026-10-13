@@ -142,10 +142,11 @@ The default session is Hyprland. Its configuration is ordinary Lua at
 | App launcher | `Super + Space` |
 | File manager | `Super + E` |
 | Firefox | `Super + B` |
-| Close / fullscreen / float | `Super + Q` / `Super + F` / `Super + V` |
+| Close / fullscreen / float | `Super + Q` / `Super + F` / `Super + Shift + F` |
 | Full / region screenshot | `Print` / `Super + Print` |
 | Screenshot menu | `Super + S` |
-| Clipboard history | `Super + Shift + V` |
+| Copy selected text / paste latest clipboard item / clipboard history | `Super + C` / `Super + V` / `Super + Shift + V` |
+| Notification Center | `Super + Shift + N` or the bell in the top bar |
 | Lock | `Super + Shift + L` |
 | Power menu | `Super + Escape` |
 | OBS Studio | `Super + O` |
@@ -157,6 +158,9 @@ The default session is Hyprland. Its configuration is ordinary Lua at
 
 The terminal launches Zsh. `cd` uses Zoxide (`z`), `ls` uses Eza, and `cat`
 uses Bat. Run `fastfetch` for the Lumen system card.
+
+The Quickshell top bar displays monitor-local Hyprland workspaces (click one
+to activate it), CPU and RAM usage, the clock, notifications, and tray icons.
 
 Neovim starts with a small, normal user configuration at
 `~/.config/nvim/` that bootstraps LazyVim. Lazy.nvim owns its plugin checkout
