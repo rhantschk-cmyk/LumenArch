@@ -208,8 +208,8 @@ ShellRoot {
                                 source: modelData.icon
                                 sourceSize.width: 18
                                 sourceSize.height: 18
-                                implicitWidth: 20
-                                implicitHeight: 20
+                                width: 20
+                                height: 20
                                 TapHandler { onTapped: modelData.activate() }
                             }
                         }
