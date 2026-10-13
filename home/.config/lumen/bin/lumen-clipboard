@@ -3,10 +3,18 @@
 set -Eeuo pipefail
 
 restore() {
-  local entry="$1"
+  local entry="$1" payload
   [[ -n "$entry" ]] || return 1
-  printf '%s' "$entry" | cliphist decode | wl-copy
-  printf '%s' "$entry" | cliphist decode | wl-copy --primary
+  # wl-copy wakes the cliphist watcher immediately. Decode exactly once before
+  # changing either clipboard so the watcher cannot invalidate entry's ID
+  # between two cliphist decode calls.
+  payload=$(mktemp /tmp/lumen-clipboard.XXXXXX)
+  trap 'rm -f -- "$payload"' RETURN
+  printf '%s' "$entry" | cliphist decode > "$payload"
+  wl-copy < "$payload"
+  wl-copy --primary < "$payload"
+  trap - RETURN
+  rm -f -- "$payload"
 }
 
 copy_primary() {
