@@ -208,14 +208,12 @@ appearance_menu() {
     choice=$(printf '%s\n' \
       '󰖨  Use dark appearance' \
       '󰖔  Use light appearance' \
-      '󰏘  Theme Studio' \
       '󰅚  Show default applications' \
       '󰒓  Set default application' \
       '󰜺  Back' | gum choose --height 10) || return
     case "$choice" in
       *dark*) run lumen appearance dark ;;
       *light*) run lumen appearance light ;;
-      *Theme\ Studio*) theme_menu ;;
       *Show*) run lumen default get browser; run lumen default get editor; run lumen default get file-manager ;;
       *Set*)
         role=$(printf '%s\n' browser editor file-manager | gum choose --prompt 'Role: ') || continue
@@ -372,7 +370,6 @@ system_menu() {
       '󰒲  Configure monitors (HyprMon)' \
       '󰆼  Container dashboard (LazyDocker)' \
       '󰖩  Connect to Wi-Fi' \
-      '󰒲  Network privacy guard' \
       '󰋊  Clean package cache' \
       '󰀻  Start or stop a service' \
       '󰩈  System overview' \
@@ -381,7 +378,6 @@ system_menu() {
       *monitors*) hyprmon; pause ;;
       *Container*) container_dashboard ;;
       *Wi-Fi*) configure_wifi ;;
-      *privacy\ guard*) network_guard_menu ;;
       *Clean*) run sudo paccache -r ;;
       *service*)
         service=$(printf '%s\n' NetworkManager bluetooth docker sddm power-profiles-daemon | gum choose --prompt 'Service: ') || continue
@@ -389,22 +385,6 @@ system_menu() {
         run sudo systemctl "$choice" "$service"
         ;;
       *overview*) fastfetch; echo; df -h /; echo; free -h; pause ;;
-      *Back*) return ;;
-    esac
-  done
-}
-
-updates_menu() {
-  while true; do
-    title
-    local choice
-    choice=$(printf '%s\n' \
-      '󰚰  Update Lumen and packages' \
-      '󰏁  Select update channel' \
-      '󰜺  Back' | gum choose --height 8) || return
-    case "$choice" in
-      *Update*) update_lumen ;;
-      *channel*) update_channel_menu ;;
       *Back*) return ;;
     esac
   done
@@ -426,41 +406,33 @@ apps_menu() {
   done
 }
 
-workspace_menu() {
-  while true; do
-    title
-    local choice
-    choice=$(printf '%s\n' \
-      '󰔟  Focus sessions' \
-      '󰈙  Projects and snapshots' \
-      '󰜺  Back' | gum choose --height 8) || return
-    case "$choice" in
-      *Focus*) focus_menu ;;
-      *Projects*) project_menu ;;
-      *Back*) return ;;
-    esac
-  done
-}
-
 main() {
   while true; do
     title
     local choice
     choice=$(printf '%s\n' \
-      '󰚰  Updates and release channel' \
-      '󰖨  Appearance and themes' \
+      '󰚰  Update Lumen and packages' \
+      '󰏁  Lumen update channel' \
+      '󰖨  Appearance and default apps' \
+      '󰏘  Theme Studio' \
       '󰏖  Apps and packages' \
-      '󰔟  Focus and projects' \
+      '󰔟  Focus sessions' \
+      '󰈙  Projects and snapshots' \
       '󰏗  Local offline repository' \
-      '󰀻  System, network, and privacy' \
+      '󰖩  Network privacy guard' \
+      '󰀻  System and network' \
       '󰍎  Lumen health check' \
-      '󰜺  Exit' | gum choose --height 11) || exit 0
+      '󰜺  Exit' | gum choose --height 14) || exit 0
     case "$choice" in
-      *Updates*) updates_menu ;;
+      *Update\ Lumen*) update_lumen ;;
+      *update\ channel*) update_channel_menu ;;
       *Appearance*) appearance_menu ;;
+      *Theme\ Studio*) theme_menu ;;
       *Apps*) apps_menu ;;
-      *Focus*) workspace_menu ;;
+      *Focus*) focus_menu ;;
+      *Projects*) project_menu ;;
       *repository*) repository_menu ;;
+      *privacy\ guard*) network_guard_menu ;;
       *System*) system_menu ;;
       *health*) run lumen doctor ;;
       *Exit*) exit 0 ;;
