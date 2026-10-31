@@ -4,7 +4,7 @@ import Quickshell.Io
 import Quickshell.Services.SystemTray
 import QtQuick
 import QtQuick.Layouts
-import qs.Commons
+import "qs/Commons" as LumenCommons
 
 ShellRoot {
     id: root
@@ -108,9 +108,9 @@ ShellRoot {
         property string fontFamily: "JetBrainsMono Nerd Font"
         property bool vertical: false
         property int barSize: 26
-        property color foreground: Color.foreground
-        property color background: Color.surface
-        property color urgent: Color.urgent
+        property color foreground: LumenCommons.Color.foreground
+        property color background: LumenCommons.Color.surface
+        property color urgent: LumenCommons.Color.urgent
 
         function run(command) {
             omarchyCommand.command = ["sh", "-c", command]
@@ -156,15 +156,15 @@ ShellRoot {
                 screen: modelData
                 anchors { top: true; left: true; right: true }
                 implicitHeight: 38
-                color: Color.background
+                color: LumenCommons.Color.background
                 exclusiveZone: 38
 
                 Rectangle {
                     anchors.fill: parent
                     anchors.margins: 5
                     radius: 10
-                    color: Color.surface
-                    border.color: Color.muted
+                    color: LumenCommons.Color.surface
+                    border.color: LumenCommons.Color.muted
 
                     RowLayout {
                         anchors.fill: parent

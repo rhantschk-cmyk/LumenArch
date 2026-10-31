@@ -81,5 +81,7 @@ grep -q 'theme <command>' "$root_dir/system/usr/local/bin/lumen" || fail 'theme 
 grep -q 'fastfetch' "$root_dir/home/.zshrc" || fail 'interactive shell does not show Fastfetch'
 grep -q 'Lumen Arch' "$root_dir/home/.config/fastfetch/config.jsonc" || fail 'Fastfetch does not brand the OS as Lumen Arch'
 grep -q 'Theme Studio' "$root_dir/home/.config/lumen/bin/lumenctl" || fail 'Control Center has no Theme Studio'
+grep -q '^\[general\]$' "$root_dir/home/.config/alacritty/alacritty.toml" || fail 'Alacritty uses deprecated top-level import'
+grep -q 'import "qs/Commons" as LumenCommons' "$root_dir/home/.config/quickshell/lumen/shell.qml" || fail 'Quickshell theme import is not local and resolvable'
 
 printf 'Control Center regression tests passed.\n'
