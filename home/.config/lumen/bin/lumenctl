@@ -16,19 +16,59 @@ run() {
 }
 
 update_source() {
-  local repo_dir="$1"
+  local repo_dir="$1" requested_channel="${2:-}" current_branch channel
   if ! git -C "$repo_dir" diff --quiet || ! git -C "$repo_dir" diff --cached --quiet; then
     echo 'The Lumen source checkout contains uncommitted changes; refusing to overwrite them.' >&2
     echo "Review them in: $repo_dir" >&2
     return 1
   fi
   git -C "$repo_dir" fetch --prune origin || return
-  if git -C "$repo_dir" rebase origin/main; then
-    return 0
+
+  current_branch=$(git -C "$repo_dir" branch --show-current 2>/dev/null || true)
+  channel="${requested_channel:-$current_branch}"
+  # `main` was the legacy update source. Existing clean installs safely move to
+  # the stable channel on their next update instead of being left behind.
+  [[ -n "$channel" && "$channel" != main ]] || channel=stable
+  case "$channel" in
+    stable|unstable) ;;
+    *) echo "Unsupported Lumen update channel: $channel" >&2; return 2 ;;
+  esac
+
+  if [[ "$current_branch" != "$channel" ]]; then
+    if git -C "$repo_dir" show-ref --verify --quiet "refs/heads/$channel"; then
+      git -C "$repo_dir" switch "$channel" || return
+    else
+      git -C "$repo_dir" branch --track "$channel" "origin/$channel" || return
+      git -C "$repo_dir" switch "$channel" || return
+    fi
   fi
-  echo 'Lumen source histories could not be reconciled automatically; the rebase was aborted.' >&2
-  git -C "$repo_dir" rebase --abort 2>/dev/null || true
-  return 1
+  git -C "$repo_dir" merge --ff-only "origin/$channel"
+}
+
+update_channel_menu() {
+  title
+  local repo_dir="$HOME/.local/share/lumen-arch/source" current_channel choice
+  [[ -d "$repo_dir/.git" ]] || { echo 'Install or update Lumen once before selecting an update channel.'; pause; return; }
+  current_channel=$(git -C "$repo_dir" branch --show-current 2>/dev/null || true)
+  [[ -n "$current_channel" && "$current_channel" != main ]] || current_channel=stable
+  echo "Current update channel: $current_channel"
+  choice=$(printf '%s\n' \
+    'stable  • tested Lumen releases' \
+    'unstable  • newest Lumen candidate features' \
+    'Back' | gum choose --height 7) || return
+  case "$choice" in
+    stable*) current_channel=stable ;;
+    unstable*) current_channel=unstable ;;
+    *) return ;;
+  esac
+  if update_source "$repo_dir" "$current_channel"; then
+    run "$repo_dir/scripts/install-user.sh"
+    gum style --foreground 42 "Lumen Control Center and user configuration now follow $current_channel."
+    gum confirm 'Apply matching Lumen system files and package requirements now?' && run "$repo_dir/scripts/install-system.sh"
+  else
+    gum style --foreground 196 'Channel switch stopped before changing Lumen files.'
+  fi
+  pause
 }
 
 update_lumen() {
@@ -109,15 +149,24 @@ container_dashboard() {
 
 curated_apps() {
   title
-  local selected packages=()
+  local selected package label source
   selected=$(printf '%s\n' \
-    'discord  • community' 'spotify  • music' 'visual-studio-code-bin  • editor' \
-    'localsend-bin  • device sharing' 'bitwarden  • passwords' 'steam  • games' \
-    'gimp  • images' 'inkscape  • vectors' | gum choose --no-limit --height 10) || return
+    $'discord\tDiscord\tofficial' \
+    $'spotify\tSpotify\tAUR' \
+    $'visual-studio-code-bin\tVisual Studio Code\tAUR' \
+    $'localsend-bin\tLocalSend\tAUR' \
+    $'bitwarden\tBitwarden\tofficial' \
+    $'steam\tSteam\tmultilib' \
+    $'gimp\tGIMP\tofficial' \
+    $'inkscape\tInkscape\tofficial' | gum choose --no-limit --height 10) || return
   [[ -n "$selected" ]] || return
-  while IFS= read -r line; do packages+=("${line%%  •*}"); done <<< "$selected"
-  gum confirm "Install: ${packages[*]}?" || return
-  run lumen install "${packages[@]}"
+  while IFS=$'\t' read -r package label source; do
+    [[ -n "$package" ]] || continue
+    gum confirm "Install $label ($package, $source)?" || continue
+    # Keep each app independent: an unavailable AUR package must not hide a
+    # successful official-package install from the same selection.
+    run lumen install "$package"
+  done <<< "$selected"
 }
 
 package_menu() {
@@ -299,6 +348,7 @@ main() {
     local choice
     choice=$(printf '%s\n' \
       '󰚰  Update Lumen and packages' \
+      '󰏁  Lumen update channel' \
       '󰏖  Packages and applications' \
       '󰖨  Appearance and default apps' \
       '󰔟  Focus sessions' \
@@ -309,7 +359,8 @@ main() {
       '󰍎  Lumen health check' \
       '󰜺  Exit' | gum choose --height 14) || exit 0
     case "$choice" in
-      *Update*) update_lumen ;;
+      *Update\ Lumen*) update_lumen ;;
+      *update\ channel*) update_channel_menu ;;
       *Packages*) package_menu ;;
       *Appearance*) appearance_menu ;;
       *Focus*) focus_menu ;;
