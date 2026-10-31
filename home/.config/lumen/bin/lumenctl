@@ -208,12 +208,14 @@ appearance_menu() {
     choice=$(printf '%s\n' \
       '󰖨  Use dark appearance' \
       '󰖔  Use light appearance' \
+      '󰏘  Theme Studio' \
       '󰅚  Show default applications' \
       '󰒓  Set default application' \
       '󰜺  Back' | gum choose --height 10) || return
     case "$choice" in
       *dark*) run lumen appearance dark ;;
       *light*) run lumen appearance light ;;
+      *Theme\ Studio*) theme_menu ;;
       *Show*) run lumen default get browser; run lumen default get editor; run lumen default get file-manager ;;
       *Set*)
         role=$(printf '%s\n' browser editor file-manager | gum choose --prompt 'Role: ') || continue
@@ -392,34 +394,74 @@ system_menu() {
   done
 }
 
-main() {
+updates_menu() {
   while true; do
     title
     local choice
     choice=$(printf '%s\n' \
       '󰚰  Update Lumen and packages' \
-      '󰏁  Lumen update channel' \
+      '󰏁  Select update channel' \
+      '󰜺  Back' | gum choose --height 8) || return
+    case "$choice" in
+      *Update*) update_lumen ;;
+      *channel*) update_channel_menu ;;
+      *Back*) return ;;
+    esac
+  done
+}
+
+apps_menu() {
+  while true; do
+    title
+    local choice
+    choice=$(printf '%s\n' \
       '󰏖  Packages and applications' \
-      '󰖨  Appearance and default apps' \
-      '󰏘  Theme Studio' \
+      '󰈙  Create web app shortcut' \
+      '󰜺  Back' | gum choose --height 8) || return
+    case "$choice" in
+      *Packages*) package_menu ;;
+      *web\ app*) create_webapp ;;
+      *Back*) return ;;
+    esac
+  done
+}
+
+workspace_menu() {
+  while true; do
+    title
+    local choice
+    choice=$(printf '%s\n' \
       '󰔟  Focus sessions' \
       '󰈙  Projects and snapshots' \
-      '󰏗  Local offline repository' \
-      '󰀻  System, network, and services' \
-      '󰈙  Create web app shortcut' \
-      '󰍎  Lumen health check' \
-      '󰜺  Exit' | gum choose --height 14) || exit 0
+      '󰜺  Back' | gum choose --height 8) || return
     case "$choice" in
-      *Update\ Lumen*) update_lumen ;;
-      *update\ channel*) update_channel_menu ;;
-      *Packages*) package_menu ;;
-      *Appearance*) appearance_menu ;;
-      *Theme\ Studio*) theme_menu ;;
       *Focus*) focus_menu ;;
       *Projects*) project_menu ;;
+      *Back*) return ;;
+    esac
+  done
+}
+
+main() {
+  while true; do
+    title
+    local choice
+    choice=$(printf '%s\n' \
+      '󰚰  Updates and release channel' \
+      '󰖨  Appearance and themes' \
+      '󰏖  Apps and packages' \
+      '󰔟  Focus and projects' \
+      '󰏗  Local offline repository' \
+      '󰀻  System, network, and privacy' \
+      '󰍎  Lumen health check' \
+      '󰜺  Exit' | gum choose --height 11) || exit 0
+    case "$choice" in
+      *Updates*) updates_menu ;;
+      *Appearance*) appearance_menu ;;
+      *Apps*) apps_menu ;;
+      *Focus*) workspace_menu ;;
       *repository*) repository_menu ;;
       *System*) system_menu ;;
-      *web\ app*) create_webapp ;;
       *health*) run lumen doctor ;;
       *Exit*) exit 0 ;;
     esac

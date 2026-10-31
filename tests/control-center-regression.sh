@@ -84,5 +84,11 @@ grep -q 'Theme Studio' "$root_dir/home/.config/lumen/bin/lumenctl" || fail 'Cont
 grep -q '^\[general\]$' "$root_dir/home/.config/alacritty/alacritty.toml" || fail 'Alacritty uses deprecated top-level import'
 grep -q 'lumen-theme-background' "$root_dir/home/.config/quickshell/lumen/shell.qml" || fail 'Quickshell has no generated palette bindings'
 ! grep -q 'import "qs/Commons"' "$root_dir/home/.config/quickshell/lumen/shell.qml" || fail 'Quickshell theme relies on a fragile module import'
+grep -q 'updates_menu()' "$source_file" || fail 'Control Center lacks an Updates group'
+grep -q 'apps_menu()' "$source_file" || fail 'Control Center lacks an Apps group'
+grep -q 'workspace_menu()' "$source_file" || fail 'Control Center lacks a Focus and Projects group'
+grep -q 'Theme Studio' "$source_file" || fail 'Theme Studio is no longer reachable'
+grep -q 'theme_menu' "$source_file" || fail 'Theme Studio is not grouped with Appearance'
+grep -q 'create_webapp' "$source_file" || fail 'Web shortcuts are no longer reachable'
 
 printf 'Control Center regression tests passed.\n'
