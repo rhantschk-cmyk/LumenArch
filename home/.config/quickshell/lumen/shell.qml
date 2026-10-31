@@ -4,7 +4,6 @@ import Quickshell.Io
 import Quickshell.Services.SystemTray
 import QtQuick
 import QtQuick.Layouts
-import "qs/Commons" as LumenCommons
 
 ShellRoot {
     id: root
@@ -16,6 +15,13 @@ ShellRoot {
     property bool focusActive: false
     property int focusSeconds: 0
     property string focusLabel: ""
+    property color themeBackground: "#1e1e2e" // lumen-theme-background
+    property color themeSurface: "#313244" // lumen-theme-surface
+    property color themeForeground: "#cdd6f4" // lumen-theme-foreground
+    property color themeAccent: "#cba6f7" // lumen-theme-accent
+    property color themeSuccess: "#a6e3a1" // lumen-theme-success
+    property color themeWarning: "#f9e2af" // lumen-theme-warning
+    property color themeDanger: "#f38ba8" // lumen-theme-danger
     property var omarchyPlugins: []
 
     function updateMetrics(output) {
@@ -108,9 +114,9 @@ ShellRoot {
         property string fontFamily: "JetBrainsMono Nerd Font"
         property bool vertical: false
         property int barSize: 26
-        property color foreground: LumenCommons.Color.foreground
-        property color background: LumenCommons.Color.surface
-        property color urgent: LumenCommons.Color.urgent
+        property color foreground: root.themeForeground
+        property color background: root.themeSurface
+        property color urgent: root.themeDanger
 
         function run(command) {
             omarchyCommand.command = ["sh", "-c", command]
@@ -156,15 +162,15 @@ ShellRoot {
                 screen: modelData
                 anchors { top: true; left: true; right: true }
                 implicitHeight: 38
-                color: LumenCommons.Color.background
+                color: root.themeBackground
                 exclusiveZone: 38
 
                 Rectangle {
                     anchors.fill: parent
                     anchors.margins: 5
                     radius: 10
-                    color: LumenCommons.Color.surface
-                    border.color: LumenCommons.Color.muted
+                    color: root.themeSurface
+                    border.color: root.themeSurface
 
                     RowLayout {
                         anchors.fill: parent

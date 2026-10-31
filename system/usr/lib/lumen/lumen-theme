@@ -37,11 +37,20 @@ local c={bg="$bg",surface="$surface",fg="$fg",accent="$accent",success="$success
 local function apply() vim.api.nvim_set_hl(0,"Normal",{fg=c.fg,bg=c.bg}); vim.api.nvim_set_hl(0,"NormalFloat",{fg=c.fg,bg=c.surface}); vim.api.nvim_set_hl(0,"Visual",{bg=c.accent,fg=c.bg}); vim.api.nvim_set_hl(0,"CursorLine",{bg=c.surface}); vim.api.nvim_set_hl(0,"StatusLine",{fg=c.fg,bg=c.surface}); vim.api.nvim_set_hl(0,"LineNr",{fg=c.accent}); end
 apply(); vim.api.nvim_create_autocmd("ColorScheme",{callback=apply})
 EOF
-  cat > "$HOME/.config/quickshell/lumen/qs/Commons/Color.qml" <<EOF
-pragma Singleton
-import QtQuick
-QtObject { readonly property color accent: "$accent"; readonly property color foreground: "$fg"; readonly property color background: "$bg"; readonly property color muted: "$surface"; readonly property color urgent: "$danger" }
-EOF
+  python3 - "$HOME/.config/quickshell/lumen/shell.qml" "$bg" "$surface" "$fg" "$accent" "$success" "$warning" "$danger" <<'PY'
+import pathlib, re, sys
+p=pathlib.Path(sys.argv[1])
+if p.exists():
+    text=p.read_text()
+    replacements={
+      'background': sys.argv[2], 'surface': sys.argv[3], 'foreground': sys.argv[4],
+      'accent': sys.argv[5], 'success': sys.argv[6], 'warning': sys.argv[7], 'danger': sys.argv[8],
+    }
+    for key, value in replacements.items():
+        text, count = re.subn(r'(property color theme' + key.title() + r': ")[^"]+(" // lumen-theme-' + key + r')', r'\g<1>' + value + r'\g<2>', text)
+        if count != 1: raise SystemExit(f'Could not update Quickshell theme {key}.')
+    p.write_text(text)
+PY
   if [[ -f "$HOME/.config/Code/User/settings.json" ]]; then cp -n "$HOME/.config/Code/User/settings.json" "$HOME/.config/Code/User/settings.json.lumen-backup" || true; fi
   python3 - "$HOME/.config/Code/User/settings.json" "$bg" "$fg" "$accent" "$surface" <<'PY'
 import json, pathlib, sys
