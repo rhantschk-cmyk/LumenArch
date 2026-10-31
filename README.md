@@ -66,7 +66,7 @@ first boot is productive rather than a blank desktop.
 | Area | Included tools |
 | --- | --- |
 | Session | Hyprland (Lua configuration), Quickshell panel, SDDM, Hyprlock, Hypridle, Polkit, portals and notifications |
-| Connectivity | NetworkManager, Bluetooth, PipeWire/WirePlumber, screen-sharing portals and `nmcli` |
+| Connectivity & security | NetworkManager, Bluetooth, PipeWire/WirePlumber, screen-sharing portals, `nmcli`, an `nftables` inbound firewall and optional lock-idle Network Guard |
 | Everyday desktop | Firefox, Thunar, Fuzzel, screenshots with Grim/Slurp, clipboard history with Cliphist, Pavucontrol and GParted |
 | Development | Git, Neovim, Tmux, LazyGit, LazyDocker, Docker, Podman, Go, Node.js, Python, Rust, Java, CMake and Kubernetes tooling |
 | Creation | OBS Studio, Obsidian, Typora, MPV, Evince, ImageMagick and FFmpeg |
@@ -234,6 +234,11 @@ commands.
 - **Local offline repository** mirrors downloaded Pacman archives, lets you
   add an archive or named package, exclude an archive from the local mirror,
   and retain a compact number of older versions.
+- **Network privacy guard** controls a local-only isolation mode. When enabled, it
+  turns off all NetworkManager-managed Wi-Fi and wired links after the screen
+  has been locked and idle for ten more minutes; user activity restores only a
+  connection that Guard itself turned off. It can be disabled permanently or
+  paused temporarily from the same menu.
 - **Configure monitors**, **LazyDocker**, cache cleanup, service control, and
   system overview remain available from the same menu.
 
@@ -252,6 +257,10 @@ lumen update                         # update Lumen and installed packages
 lumen focus start 25 "Edit video"   # show a timed focus session in the panel
 lumen focus status
 lumen focus stop
+lumen network guard enable           # disconnect Wi-Fi/LAN after lock + 10 min idle
+lumen network guard pause 60         # temporarily suspend automation and restore connectivity
+lumen network guard disable          # turn the feature off completely
+lumen network guard status
 lumen search --select hypr           # choose an official package with FZF
 lumen search --aur --select theme    # choose an AUR package with FZF
 lumen install <package>              # official package, then Yay fallback

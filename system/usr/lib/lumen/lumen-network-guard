@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# User-facing, lock-driven NetworkManager privacy guard for Lumen.
+set -Eeuo pipefail
+
+config_root="${XDG_CONFIG_HOME:-$HOME/.config}/lumen"
+state_root="${XDG_STATE_HOME:-$HOME/.local/state}/lumen"
+config_file="$config_root/network-guard.conf"
+state_file="$state_root/network-guard.state"
+system_helper=/usr/lib/lumen/lumen-network-guard-system
+
+default_config() {
+  enabled=0
+  pause_until=0
+}
+
+load_config() {
+  default_config
+  [[ -r "$config_file" ]] && source "$config_file"
+  [[ "$enabled" =~ ^[01]$ && "$pause_until" =~ ^[0-9]+$ ]] || { echo 'Invalid Network Guard configuration.' >&2; exit 1; }
+}
+
+save_config() {
+  install -d -m 0700 "$config_root"
+  printf 'enabled=%s\npause_until=%s\n' "$enabled" "$pause_until" > "$config_file"
+  chmod 600 "$config_file"
+}
+
+is_guard_disabled() { [[ -f "$state_file" ]] && grep -Fxq 'disabled_by_guard=1' "$state_file"; }
+mark_disabled() { install -d -m 0700 "$state_root"; printf 'disabled_by_guard=1\n' > "$state_file"; chmod 600 "$state_file"; }
+clear_disabled() { rm -f "$state_file"; }
+
+network_off() {
+  sudo -n "$system_helper" off
+  mark_disabled
+  echo 'Network Guard disabled all NetworkManager connectivity.'
+}
+
+network_on() {
+  if is_guard_disabled; then
+    sudo -n "$system_helper" on
+    clear_disabled
+    echo 'Network Guard restored NetworkManager connectivity.'
+  fi
+}
+
+usage() {
+  cat <<'EOF'
+Usage: lumen network guard <command>
+
+Commands:
+  enable             enable persistent lock-idle network isolation
+  disable            disable Guard and restore connectivity it turned off
+  pause [minutes]    temporarily suspend Guard and restore connectivity (default: 60)
+  resume             cancel the temporary pause
+  idle               internal: run after locked idle timeout
+  active             internal: restore Guard-managed connectivity on activity
+  status             show Guard, pause and connectivity state
+EOF
+}
+
+load_config
+case "${1:-help}" in
+  enable)
+    enabled=1; pause_until=0; save_config
+    echo 'Network Guard enabled: it disconnects Wi-Fi and LAN after lock plus 10 idle minutes.'
+    ;;
+  disable)
+    enabled=0; pause_until=0; save_config; network_on
+    echo 'Network Guard disabled.'
+    ;;
+  pause)
+    minutes="${2:-60}"
+    [[ "$minutes" =~ ^[0-9]+$ ]] && (( minutes >= 1 && minutes <= 1440 )) || { echo 'Pause duration must be 1 to 1440 minutes.' >&2; exit 2; }
+    pause_until=$(( $(date +%s) + minutes * 60 )); save_config; network_on
+    echo "Network Guard paused for $minutes minutes."
+    ;;
+  resume)
+    pause_until=0; save_config
+    echo 'Network Guard pause cancelled.'
+    ;;
+  idle)
+    now=$(date +%s)
+    if (( enabled == 1 && now >= pause_until )) && ! is_guard_disabled; then network_off; fi
+    ;;
+  active) network_on ;;
+  status)
+    now=$(date +%s)
+    printf 'Guard: %s\n' "$([[ "$enabled" == 1 ]] && echo enabled || echo disabled)"
+    if (( pause_until > now )); then printf 'Paused until: %s\n' "$(date -d "@$pause_until" '+%F %R')"; else echo 'Paused: no'; fi
+    if is_guard_disabled; then echo 'Connectivity: disabled by Guard'; else echo 'Connectivity: not disabled by Guard'; fi
+    ;;
+  help|-h|--help) usage ;;
+  *) usage >&2; exit 2 ;;
+esac

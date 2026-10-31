@@ -4,6 +4,7 @@ base-devel
 linux
 linux-firmware
 networkmanager
+nftables
 sudo
 systemd
 intel-ucode

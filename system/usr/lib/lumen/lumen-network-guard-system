@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Narrow root helper used by the Lumen Network Guard idle automation.
+set -Eeuo pipefail
+
+[[ $EUID -eq 0 ]] || { echo 'This helper must run as root.' >&2; exit 1; }
+case "${1:-}" in
+  off) exec /usr/bin/nmcli networking off ;;
+  on) exec /usr/bin/nmcli networking on ;;
+  *) echo 'Usage: lumen-network-guard-system <on|off>' >&2; exit 2 ;;
+esac

@@ -69,5 +69,12 @@ grep -Fq 'sudo pacman -Syyu --needed' "$root_dir/scripts/install-system.sh" || f
 grep -Fq 'run "$repo_dir/scripts/install-system.sh"' "$root_dir/home/.config/lumen/bin/lumenctl" || fail 'Control Center does not delegate system updates to the guarded installer'
 ! grep -Fq 'run sudo pacman -Syu' "$root_dir/home/.config/lumen/bin/lumenctl" || fail 'Control Center still bypasses the guarded system updater'
 grep -Fq 'sed -i "/^LocalFileSigLevel = /a $include_line" /etc/pacman.conf' "$root_dir/system/usr/lib/lumen/lumen-repo-sync" || fail 'local repository is not restored to priority position'
+grep -Fxq 'nftables' "$root_dir/profiles/base/packages.pacman" || fail 'nftables is not part of the base profile'
+test -x "$root_dir/system/usr/lib/lumen/lumen-network-guard" || fail 'network guard helper is missing'
+test -x "$root_dir/system/usr/lib/lumen/lumen-network-guard-system" || fail 'network guard root helper is missing'
+grep -q 'policy drop' "$root_dir/system/etc/nftables.conf" || fail 'firewall does not default-deny inbound traffic'
+grep -q 'network guard' "$root_dir/system/usr/local/bin/lumen" || fail 'network guard is not exposed through the Lumen CLI'
+grep -q 'lumen network guard idle' "$root_dir/home/.config/hypr/hypridle.conf" || fail 'network guard is not bound to idle lock state'
+grep -q 'pause \[minutes\]' "$root_dir/system/usr/lib/lumen/lumen-network-guard" || fail 'network guard cannot be temporarily paused'
 
 printf 'Control Center regression tests passed.\n'

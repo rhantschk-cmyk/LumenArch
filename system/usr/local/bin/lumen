@@ -6,6 +6,7 @@ set -Eeuo pipefail
 # tree during validation or development.
 repo_helper="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)/usr/lib/lumen/lumen-repo-sync"
 focus_helper="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)/usr/lib/lumen/lumen-focus"
+network_guard_helper="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)/usr/lib/lumen/lumen-network-guard"
 
 control_center_path() {
   local candidate="$HOME/.config/lumen/bin/lumenctl"
@@ -38,6 +39,7 @@ Everyday commands:
   update                         update Lumen files and installed packages
   doctor                         inspect common Lumen session and package health
   focus <command>                run a local timed focus session (start/status/stop)
+  network guard <command>        manage lock-idle network isolation and its pause
   shell <package> [--dir path]   enter a temporary CLI environment; optionally mount a work directory
   shell --dir path --config FILE enter the environment declared by project.lumen
   project <command>              manage reproducible local coding projects
@@ -205,6 +207,13 @@ case "${1:-help}" in
   update) open_control_center --update ;;
   doctor) doctor ;;
   focus) shift; [[ -x "$focus_helper" ]] || { echo 'Lumen Focus Sessions are not installed. Run: lumen update' >&2; exit 1; }; exec "$focus_helper" "$@" ;;
+  network)
+    shift
+    [[ "${1:-}" == guard ]] || { echo 'Usage: lumen network guard <command>' >&2; exit 2; }
+    shift
+    [[ -x "$network_guard_helper" ]] || { echo 'Lumen Network Guard is not installed. Run: lumen update' >&2; exit 1; }
+    exec "$network_guard_helper" "$@"
+    ;;
   appearance) [[ $# -eq 2 ]] || { help >&2; exit 2; }; appearance "$2" ;;
   default) [[ $# -ge 3 ]] || { help >&2; exit 2; }; default_app "$2" "$3" "${4:-}" ;;
   search) shift; search_packages "$@" ;;

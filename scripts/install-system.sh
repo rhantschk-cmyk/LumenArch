@@ -68,7 +68,23 @@ for lumen_fragment in lumen-holds.conf lumen-local.conf; do
     fi
   fi
 done
+
+# Idle automation cannot answer a graphical authentication prompt. Grant the current
+# user only the two validated NetworkManager on/off helper invocations, nothing else.
+if [[ "$USER" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
+  sudoers_file="/etc/sudoers.d/lumen-network-guard-$USER"
+  sudoers_tmp=$(mktemp)
+  printf '%s ALL=(root) NOPASSWD: /usr/lib/lumen/lumen-network-guard-system on, /usr/lib/lumen/lumen-network-guard-system off\n' "$USER" > "$sudoers_tmp"
+  sudo chmod 440 "$sudoers_tmp"
+  sudo visudo -cf "$sudoers_tmp"
+  sudo install -m 0440 "$sudoers_tmp" "$sudoers_file"
+  rm -f "$sudoers_tmp"
+else
+  echo 'Could not configure Network Guard privilege scope: unsupported username.' >&2
+  exit 1
+fi
 sudo systemctl enable NetworkManager.service bluetooth.service sddm.service power-profiles-daemon.service
+sudo systemctl enable --now nftables.service
 sudo systemctl enable docker.service
 if ! groups "$USER" | grep -qw docker; then
   sudo usermod -aG docker "$USER"

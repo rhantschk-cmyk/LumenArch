@@ -312,6 +312,26 @@ project_menu() {
   done
 }
 
+network_guard_menu() {
+  while true; do
+    title
+    local choice minutes
+    choice=$(printf '%s\n' \
+      '󰖩  Enable lock-idle isolation' \
+      '󰖨  Disable Network Guard' \
+      '󰌵  Pause isolation temporarily' \
+      '󰋚  Show Network Guard status' \
+      '󰜺  Back' | gum choose --height 10) || return
+    case "$choice" in
+      *Enable*) run lumen network guard enable ;;
+      *Disable*) run lumen network guard disable ;;
+      *Pause*) minutes=$(gum input --prompt 'Pause minutes: ' --value '60') || continue; run lumen network guard pause "$minutes" ;;
+      *status*) run lumen network guard status ;;
+      *Back*) return ;;
+    esac
+  done
+}
+
 system_menu() {
   while true; do
     title
@@ -320,6 +340,7 @@ system_menu() {
       '󰒲  Configure monitors (HyprMon)' \
       '󰆼  Container dashboard (LazyDocker)' \
       '󰖩  Connect to Wi-Fi' \
+      '󰒲  Network privacy guard' \
       '󰋊  Clean package cache' \
       '󰀻  Start or stop a service' \
       '󰩈  System overview' \
@@ -328,6 +349,7 @@ system_menu() {
       *monitors*) hyprmon; pause ;;
       *Container*) container_dashboard ;;
       *Wi-Fi*) configure_wifi ;;
+      *privacy\ guard*) network_guard_menu ;;
       *Clean*) run sudo paccache -r ;;
       *service*)
         service=$(printf '%s\n' NetworkManager bluetooth docker sddm power-profiles-daemon | gum choose --prompt 'Service: ') || continue
