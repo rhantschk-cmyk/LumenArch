@@ -99,8 +99,11 @@ def parse_config(directory):
         versions_path = versions.get("Path", ".lumen/versions")
         compile_before = versions.get("CompileBeforeSaving", True)
         excludes = versions.get("Exclude", [".git", "target", "node_modules", ".lumen"])
-    except (KeyError, TypeError, tomllib.TOMLDecodeError) as exc:
-        die(f"invalid project.lumen: {exc}")
+    except tomllib.TOMLDecodeError as exc:
+        hint = " Close the list with `]`, for example: Packages = [\"bash\", \"python\"]." if "Unclosed array" in str(exc) else ""
+        die(f"invalid project.lumen at {path}: {exc}.{hint}")
+    except (KeyError, TypeError) as exc:
+        die(f"invalid project.lumen at {path}: {exc}")
     if not all(isinstance(value, str) for value in (name, description, workspace_setting, execute, compile_command, mode, versions_path)):
         die("project.lumen text fields must be strings")
     if not NAME.fullmatch(name):
