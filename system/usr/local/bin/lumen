@@ -5,6 +5,7 @@ set -Eeuo pipefail
 # Resolves both after installation and when the script is run from this source
 # tree during validation or development.
 repo_helper="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)/usr/lib/lumen/lumen-repo-sync"
+focus_helper="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)/usr/lib/lumen/lumen-focus"
 
 control_center_path() {
   local candidate="$HOME/.config/lumen/bin/lumenctl"
@@ -36,6 +37,7 @@ Everyday commands:
   center                         open the Lumen Control Center
   update                         update Lumen files and installed packages
   doctor                         inspect common Lumen session and package health
+  focus <command>                run a local timed focus session (start/status/stop)
   shell <package> [--dir path]   enter a temporary CLI environment; optionally mount a work directory
   shell --dir path --config FILE enter the environment declared by project.lumen
   project <command>              manage reproducible local coding projects
@@ -202,6 +204,7 @@ case "${1:-help}" in
   center) open_control_center ;;
   update) open_control_center --update ;;
   doctor) doctor ;;
+  focus) shift; [[ -x "$focus_helper" ]] || { echo 'Lumen Focus Sessions are not installed. Run: lumen update' >&2; exit 1; }; exec "$focus_helper" "$@" ;;
   appearance) [[ $# -eq 2 ]] || { help >&2; exit 2; }; appearance "$2" ;;
   default) [[ $# -ge 3 ]] || { help >&2; exit 2; }; default_app "$2" "$3" "${4:-}" ;;
   search) shift; search_packages "$@" ;;

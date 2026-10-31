@@ -12,6 +12,9 @@ ShellRoot {
     property real previousCpuTotal: -1
     property string cpuText: "CPU --%"
     property string ramText: "RAM --"
+    property bool focusActive: false
+    property int focusSeconds: 0
+    property string focusLabel: ""
     property var omarchyPlugins: []
 
     function updateMetrics(output) {
@@ -31,6 +34,20 @@ ShellRoot {
         previousCpuBusy = busy
         previousCpuTotal = total
         ramText = "RAM " + (usedMemory / 1048576).toFixed(1) + "/" + (totalMemory / 1048576).toFixed(1) + "G"
+    }
+
+    function updateFocus(output) {
+        const values = output.trim().split("\n")
+        focusActive = values.length >= 3 && values[0] === "active"
+        focusSeconds = focusActive ? Number(values[1]) : 0
+        focusLabel = focusActive ? values.slice(2).join(" ") : ""
+    }
+
+    function focusRemainingText() {
+        if (!focusActive)
+            return ""
+        const minutes = Math.max(1, Math.ceil(focusSeconds / 60))
+        return "󰔟  " + minutes + "m"
     }
 
     function updateOmarchyPlugins(output) {
@@ -60,6 +77,14 @@ ShellRoot {
     Process {
         id: notificationCenter
         command: ["swaync-client", "-t"]
+    }
+
+    Process {
+        id: focusProcess
+        command: ["lumen", "focus", "status", "--plain"]
+        stdout: StdioCollector {
+            onStreamFinished: root.updateFocus(this.text)
+        }
     }
 
     // The importer deliberately supports only Omarchy's public, small
@@ -111,6 +136,14 @@ ShellRoot {
         running: true
         repeat: true
         onTriggered: omarchyPluginScanner.running = true
+    }
+
+    Timer {
+        interval: 15000
+        running: true
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: focusProcess.running = true
     }
 
     Variants {
@@ -185,6 +218,23 @@ ShellRoot {
                         Item { Layout.fillWidth: true }
                         Text { text: "󰍛  " + root.cpuText; color: "#89b4fa"; font.family: "JetBrainsMono Nerd Font" }
                         Text { text: "󰘚  " + root.ramText; color: "#a6e3a1"; font.family: "JetBrainsMono Nerd Font" }
+                        Rectangle {
+                            visible: root.focusActive
+                            implicitWidth: focusText.implicitWidth + 14
+                            implicitHeight: 24
+                            radius: 7
+                            color: "#334f46"
+                            border.color: "#a6e3a1"
+
+                            Text {
+                                id: focusText
+                                anchors.centerIn: parent
+                                text: root.focusRemainingText()
+                                color: "#a6e3a1"
+                                font.family: "JetBrainsMono Nerd Font"
+                                font.bold: true
+                            }
+                        }
                         Text { text: root.timeText; color: "#cdd6f4"; font.family: "JetBrainsMono Nerd Font" }
                         Rectangle {
                             width: 28

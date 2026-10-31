@@ -249,6 +249,9 @@ Run `lumen help` or a command's `--help` for a concise command reference.
 ```bash
 lumen center                         # open the terminal Control Center
 lumen update                         # update Lumen and installed packages
+lumen focus start 25 "Edit video"   # show a timed focus session in the panel
+lumen focus status
+lumen focus stop
 lumen search --select hypr           # choose an official package with FZF
 lumen search --aur --select theme    # choose an AUR package with FZF
 lumen install <package>              # official package, then Yay fallback

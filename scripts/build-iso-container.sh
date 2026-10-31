@@ -25,4 +25,4 @@ exec "${docker_cmd[@]}" run --rm --privileged \
   --volume "$root_dir/build/container-pacman-cache:/var/cache/pacman/pkg" \
   --volume "$root_dir:/workspace" --workdir /workspace \
   archlinux:base-devel bash -lc \
-  "$builder_setup && ./scripts/build-iso.sh && chown -R \"\$HOST_UID:\$HOST_GID\" build"
+  "$builder_setup && yes '' | ./scripts/build-iso.sh && chown -R \"\$HOST_UID:\$HOST_GID\" build"

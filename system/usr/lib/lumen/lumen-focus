@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# Local, user-scoped focus-session helper for the Lumen CLI and panel.
+set -Eeuo pipefail
+
+state_root="${LUMEN_FOCUS_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/lumen}"
+state_file="$state_root/focus-session"
+
+usage() {
+  cat <<'EOF'
+Usage: lumen focus <command> [arguments]
+
+Commands:
+  start [minutes] [label...]  start a focus session (default: 25 minutes)
+  status [--plain]           show the active session and remaining time
+  stop                       end the active session early
+EOF
+}
+
+format_remaining() {
+  local seconds="$1"
+  if (( seconds >= 3600 )); then
+    printf '%dh %02dm' "$((seconds / 3600))" "$(((seconds % 3600) / 60))"
+  else
+    printf '%dm' "$(((seconds + 59) / 60))"
+  fi
+}
+
+read_state() {
+  [[ -f "$state_file" ]] || return 1
+  IFS=$'\t' read -r focus_deadline focus_pid focus_label < "$state_file" || return 1
+  [[ "$focus_deadline" =~ ^[0-9]+$ && "$focus_pid" =~ ^[0-9]+$ && -n "$focus_label" ]] || return 1
+}
+
+clear_state() {
+  rm -f "$state_file"
+}
+
+active_state() {
+  read_state || return 1
+  local now
+  now=$(date +%s)
+  if (( focus_deadline <= now )); then
+    clear_state
+    return 1
+  fi
+  return 0
+}
+
+stop_session() {
+  if active_state; then
+    if kill -0 "$focus_pid" 2>/dev/null; then
+      kill "$focus_pid" 2>/dev/null || true
+    fi
+    clear_state
+    echo 'Focus session stopped.'
+  else
+    clear_state
+    echo 'No active focus session.'
+  fi
+}
+
+start_session() {
+  local minutes="${1:-25}"
+  shift || true
+  [[ "$minutes" =~ ^[0-9]+$ ]] && (( minutes >= 1 && minutes <= 480 )) || {
+    echo 'Focus duration must be a whole number from 1 to 480 minutes.' >&2
+    exit 2
+  }
+
+  local label="${*:-Focus session}"
+  label=${label//$'\t'/ }
+  label=${label//$'\n'/ }
+  [[ -n "$label" ]] || label='Focus session'
+
+  stop_session >/dev/null
+  install -d -m 0700 "$state_root"
+
+  local now deadline seconds timer_pid
+  now=$(date +%s)
+  seconds=$((minutes * 60))
+  deadline=$((now + seconds))
+
+  (
+    sleep "$seconds"
+    rm -f "$state_file"
+    if command -v notify-send >/dev/null 2>&1; then
+      notify-send --app-name=Lumen 'Focus session complete' "$label finished. Take a moment before the next task."
+    fi
+  ) >/dev/null 2>&1 &
+  timer_pid=$!
+
+  printf '%s\t%s\t%s\n' "$deadline" "$timer_pid" "$label" > "$state_file"
+  echo "Focus started: $label ($minutes minutes)."
+}
+
+status_session() {
+  local plain="${1:-}"
+  if active_state; then
+    local now remaining
+    now=$(date +%s)
+    remaining=$((focus_deadline - now))
+    if [[ "$plain" == --plain ]]; then
+      printf 'active\n%s\n%s\n' "$remaining" "$focus_label"
+    else
+      echo "Focus active: $focus_label ($(format_remaining "$remaining") remaining)."
+    fi
+  else
+    if [[ "$plain" == --plain ]]; then
+      printf 'inactive\n0\n\n'
+    else
+      echo 'No active focus session.'
+    fi
+  fi
+}
+
+case "${1:-help}" in
+  start) shift; start_session "$@" ;;
+  status) shift; [[ $# -le 1 ]] || { usage >&2; exit 2; }; status_session "${1:-}" ;;
+  stop) [[ $# -eq 1 ]] || { usage >&2; exit 2; }; stop_session ;;
+  help|-h|--help) usage ;;
+  *) usage >&2; exit 2 ;;
+esac

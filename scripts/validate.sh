@@ -2,8 +2,10 @@
 # Static validation: safe to run on any Linux host.
 set -Eeuo pipefail
 root_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+python_bin="$(command -v python || command -v python3 || true)"
+[[ -n "$python_bin" ]] || { echo 'Python 3 is required for static validation.' >&2; exit 1; }
 
-python -c '
+"$python_bin" -c '
 import json
 import sys
 
@@ -73,7 +75,7 @@ grep -qx 'python' "$root_dir/profiles/base/packages.pacman"
 test -x "$root_dir/home/.config/lumen/bin/lumen-applications"
 test -x "$root_dir/home/.config/lumen/bin/lumen-clipboard"
 test -x "$root_dir/home/.config/lumen/bin/lumen-omarchy"
-python -c 'import sys; compile(open(sys.argv[1], encoding="utf-8").read(), sys.argv[1], "exec")' "$root_dir/home/.config/lumen/bin/lumen-omarchy"
+"$python_bin" -c 'import sys; compile(open(sys.argv[1], encoding="utf-8").read(), sys.argv[1], "exec")' "$root_dir/home/.config/lumen/bin/lumen-omarchy"
 grep -q 'omarchy <command>' "$root_dir/system/usr/local/bin/lumen"
 grep -q 'copy-primary' "$root_dir/home/.config/hypr/hyprland.lua"
 grep -q 'paste-latest' "$root_dir/home/.config/hypr/hyprland.lua"
@@ -88,6 +90,16 @@ grep -q 'LazyVim/LazyVim' "$root_dir/home/.config/nvim/lua/config/lazy.lua"
 test -f "$root_dir/home/.local/share/applications/xfce4-about.desktop"
 test -x "$root_dir/system/usr/local/bin/lumen"
 test -x "$root_dir/system/usr/lib/lumen/lumen-repo-sync"
+test -x "$root_dir/system/usr/lib/lumen/lumen-focus"
+bash -n "$root_dir/system/usr/lib/lumen/lumen-focus"
+grep -q 'Focus duration must be a whole number' "$root_dir/system/usr/lib/lumen/lumen-focus"
+grep -q 'LUMEN_FOCUS_STATE_DIR' "$root_dir/system/usr/lib/lumen/lumen-focus"
+grep -q 'focus <command>' "$root_dir/system/usr/local/bin/lumen"
+grep -q 'focus_helper' "$root_dir/system/usr/local/bin/lumen"
+grep -q 'Focus sessions' "$root_dir/home/.config/lumen/bin/lumenctl"
+grep -q 'focus_menu()' "$root_dir/home/.config/lumen/bin/lumenctl"
+grep -q 'focusProcess' "$root_dir/home/.config/quickshell/lumen/shell.qml"
+grep -q 'focusRemainingText' "$root_dir/home/.config/quickshell/lumen/shell.qml"
 grep -q 'local_sync_database()' "$root_dir/system/usr/lib/lumen/lumen-repo-sync"
 grep -q 'install -Dm644 "$REPO_DIR/$REPO_NAME.db" "$sync_database"' "$root_dir/system/usr/lib/lumen/lumen-repo-sync"
 grep -q 'disable_pacman_source()' "$root_dir/system/usr/lib/lumen/lumen-repo-sync"
@@ -107,7 +119,7 @@ grep -q '\[\[ \$# -ge 2 && -z "\$workspace_dir" \]\]' "$root_dir/system/usr/lib/
 grep -q 'chmod 755 "$shell_root"' "$root_dir/system/usr/lib/lumen/lumen-shell"
 grep -q -- 'shell <package> \[--dir path\]' "$root_dir/system/usr/local/bin/lumen"
 test -x "$root_dir/system/usr/lib/lumen/lumen-project"
-python -c 'import sys; compile(open(sys.argv[1], encoding="utf-8").read(), sys.argv[1], "exec")' "$root_dir/system/usr/lib/lumen/lumen-project"
+"$python_bin" -c 'import sys; compile(open(sys.argv[1], encoding="utf-8").read(), sys.argv[1], "exec")' "$root_dir/system/usr/lib/lumen/lumen-project"
 grep -q 'locked_repository' "$root_dir/system/usr/lib/lumen/lumen-project"
 test -x "$root_dir/system/usr/lib/lumen/lumen-snapshot"
 grep -q 'Usage: lumen snapshot <packages|environment|repo|dir|all>' "$root_dir/system/usr/lib/lumen/lumen-snapshot"
@@ -129,5 +141,5 @@ grep -q 'index: sessionModel.lastIndex' "$root_dir/system/usr/share/sddm/themes/
 grep -q 'session.index' "$root_dir/system/usr/share/sddm/themes/lumen/Main.qml"
 ! grep -q 'QtQuick.Controls' "$root_dir/system/usr/share/sddm/themes/lumen/Main.qml"
 ! rg -q 'currentIndex|textRole|placeholderText|echoMode' "$root_dir/system/usr/share/sddm/themes/lumen/Main.qml"
-python -c 'import sys; compile(open(sys.argv[1], encoding="utf-8").read(), sys.argv[1], "exec")' "$root_dir/iso/airootfs/usr/local/share/lumen-installer/app.py"
+"$python_bin" -c 'import sys; compile(open(sys.argv[1], encoding="utf-8").read(), sys.argv[1], "exec")' "$root_dir/iso/airootfs/usr/local/share/lumen-installer/app.py"
 echo 'Static validation passed.'

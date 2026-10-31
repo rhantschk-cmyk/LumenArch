@@ -208,6 +208,28 @@ repository_menu() {
   done
 }
 
+focus_menu() {
+  while true; do
+    title
+    local choice minutes label
+    choice=$(printf '%s\n' \
+      '󰔟  Start a focus session' \
+      '󰥔  Show focus status' \
+      '󰅖  Stop focus session' \
+      '󰜺  Back' | gum choose --height 8) || return
+    case "$choice" in
+      *Start*)
+        minutes=$(gum input --prompt 'Minutes: ' --value '25') || continue
+        label=$(gum input --prompt 'What are you focusing on? ' --value 'Focus session') || continue
+        [[ -n "$minutes" ]] && run lumen focus start "$minutes" "$label"
+        ;;
+      *status*) run lumen focus status ;;
+      *Stop*) run lumen focus stop ;;
+      *Back*) return ;;
+    esac
+  done
+}
+
 project_menu() {
   while true; do
     title
@@ -279,6 +301,7 @@ main() {
       '󰚰  Update Lumen and packages' \
       '󰏖  Packages and applications' \
       '󰖨  Appearance and default apps' \
+      '󰔟  Focus sessions' \
       '󰈙  Projects and snapshots' \
       '󰏗  Local offline repository' \
       '󰀻  System, network, and services' \
@@ -289,6 +312,7 @@ main() {
       *Update*) update_lumen ;;
       *Packages*) package_menu ;;
       *Appearance*) appearance_menu ;;
+      *Focus*) focus_menu ;;
       *Projects*) project_menu ;;
       *repository*) repository_menu ;;
       *System*) system_menu ;;
