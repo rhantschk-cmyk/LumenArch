@@ -89,9 +89,7 @@ update_lumen() {
     fi
   fi
   run "$repo_dir/scripts/install-user.sh"
-  run sudo pacman -Syu
-  command -v yay >/dev/null && run yay -Syu
-  if gum confirm 'Apply changed Lumen system files and package requirements now?'; then
+  if gum confirm 'Update installed packages and apply matching Lumen system files now?'; then
     run "$repo_dir/scripts/install-system.sh"
   fi
 }

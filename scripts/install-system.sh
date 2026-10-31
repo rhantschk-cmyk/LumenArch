@@ -20,13 +20,22 @@ if ! command -v pacman >/dev/null; then
   exit 1
 fi
 
+pacman_config_without_local_repo() {
+  local temporary
+  temporary=$(mktemp)
+  sed '\|^Include = /etc/pacman.conf.d/lumen-local.conf$|d' /etc/pacman.conf > "$temporary"
+  printf '%s\n' "$temporary"
+}
+
 mapfile -t packages < <(sed -E '/^($|#)/d' "${package_files[@]}" | awk '!seen[$0]++')
 printf 'Lumen wants to update %s official packages and system components.\n' "${#packages[@]}"
 read -r -p 'Continue? [Y/n] ' answer
 [[ -z "$answer" || "$answer" =~ ^[Yy]$ ]] || { echo 'Cancelled.'; exit 0; }
 
 echo 'Review package replacement/removal prompts carefully; they are required for safe Arch transitions.'
-sudo pacman -Syu --needed "${packages[@]}"
+temporary_pacman_conf=$(pacman_config_without_local_repo)
+sudo pacman --config "$temporary_pacman_conf" -Syyu --needed "${packages[@]}"
+rm -f "$temporary_pacman_conf"
 while IFS= read -r -d '' source; do
   target="/${source#"$root_dir/system/"}"
   sudo install -Dm644 "$source" "$target"
@@ -34,7 +43,12 @@ while IFS= read -r -d '' source; do
 done < <(find "$root_dir/system" -type f -print0)
 for lumen_fragment in lumen-holds.conf lumen-local.conf; do
   include_line="Include = /etc/pacman.conf.d/$lumen_fragment"
-  if ! sudo grep -Fqx "$include_line" /etc/pacman.conf; then
+  if [[ "$lumen_fragment" == lumen-local.conf ]]; then
+    # Official repositories must win over optional local archives during normal
+    # upgrades, otherwise an older cached core package can pin a dependency.
+    sudo sed -i '\|^Include = /etc/pacman.conf.d/lumen-local.conf$|d' /etc/pacman.conf
+    printf '%s\n' "$include_line" | sudo tee -a /etc/pacman.conf >/dev/null
+  elif ! sudo grep -Fqx "$include_line" /etc/pacman.conf; then
     if sudo grep -q '^LocalFileSigLevel = ' /etc/pacman.conf; then
       sudo sed -i "/^LocalFileSigLevel = /a $include_line" /etc/pacman.conf
     elif sudo grep -q '^\[options\]$' /etc/pacman.conf; then

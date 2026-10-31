@@ -63,5 +63,9 @@ grep -Fqx 'install spotify' "$MOCK_LUMEN_LOG" || fail 'Spotify was not installed
 grep -Fxq 'obs-studio-plugin-browser' "$root_dir/profiles/creator/packages.pacman" && fail 'obsolete OBS browser split package is still required'
 grep -Fq 'sudo pacman -Syu --needed --noconfirm' "$root_dir/scripts/install-system.sh" && fail 'system upgrades must not auto-decline package replacements'
 grep -Fq 'Review package replacement/removal prompts' "$root_dir/scripts/install-system.sh" || fail 'interactive replacement warning is missing'
+grep -Fq 'pacman_config_without_local_repo()' "$root_dir/scripts/install-system.sh" || fail 'system update does not bypass the local archive repository'
+grep -Fq 'run "$repo_dir/scripts/install-system.sh"' "$root_dir/home/.config/lumen/bin/lumenctl" || fail 'Control Center does not delegate system updates to the guarded installer'
+! grep -Fq 'run sudo pacman -Syu' "$root_dir/home/.config/lumen/bin/lumenctl" || fail 'Control Center still bypasses the guarded system updater'
+grep -Fq 'cat >> /etc/pacman.conf' "$root_dir/system/usr/lib/lumen/lumen-repo-sync" || fail 'local repository is not appended after official repositories'
 
 printf 'Control Center regression tests passed.\n'
