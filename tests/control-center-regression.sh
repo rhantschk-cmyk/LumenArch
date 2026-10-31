@@ -60,4 +60,8 @@ grep -Fqx 'install discord' "$MOCK_LUMEN_LOG" || fail 'Discord was not installed
 grep -Fqx 'install spotify' "$MOCK_LUMEN_LOG" || fail 'Spotify was not installed as an individual curated selection'
 [[ "$(wc -l < "$MOCK_LUMEN_LOG")" -eq 2 ]] || fail 'curated selections were batched instead of invoked individually'
 
+grep -Fxq 'obs-studio-plugin-browser' "$root_dir/profiles/creator/packages.pacman" && fail 'obsolete OBS browser split package is still required'
+grep -Fq 'sudo pacman -Syu --needed --noconfirm' "$root_dir/scripts/install-system.sh" && fail 'system upgrades must not auto-decline package replacements'
+grep -Fq 'Review package replacement/removal prompts' "$root_dir/scripts/install-system.sh" || fail 'interactive replacement warning is missing'
+
 printf 'Control Center regression tests passed.\n'

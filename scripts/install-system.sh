@@ -25,7 +25,8 @@ printf 'Lumen wants to update %s official packages and system components.\n' "${
 read -r -p 'Continue? [Y/n] ' answer
 [[ -z "$answer" || "$answer" =~ ^[Yy]$ ]] || { echo 'Cancelled.'; exit 0; }
 
-sudo pacman -Syu --needed --noconfirm "${packages[@]}"
+echo 'Review package replacement/removal prompts carefully; they are required for safe Arch transitions.'
+sudo pacman -Syu --needed "${packages[@]}"
 while IFS= read -r -d '' source; do
   target="/${source#"$root_dir/system/"}"
   sudo install -Dm644 "$source" "$target"
