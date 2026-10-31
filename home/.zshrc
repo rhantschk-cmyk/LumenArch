@@ -30,3 +30,9 @@ for spaceship in /usr/share/zsh-theme/spaceship.zsh /usr/share/zsh/plugins/space
   [[ -r "$spaceship" ]] && source "$spaceship" && break
 done
 [[ -n "${SPACESHIP_VERSION:-}" ]] || eval "$(starship init zsh)"
+
+# One branded system card per new interactive terminal (not nested subshells).
+if [[ -o interactive && -z "${LUMEN_FASTFETCH_SHOWN:-}" ]] && command -v fastfetch >/dev/null; then
+  export LUMEN_FASTFETCH_SHOWN=1
+  fastfetch
+fi

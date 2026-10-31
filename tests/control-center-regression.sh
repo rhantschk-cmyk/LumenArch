@@ -76,5 +76,10 @@ grep -q 'policy drop' "$root_dir/system/etc/nftables.conf" || fail 'firewall doe
 grep -q 'network guard' "$root_dir/system/usr/local/bin/lumen" || fail 'network guard is not exposed through the Lumen CLI'
 grep -q 'lumen network guard idle' "$root_dir/home/.config/hypr/hypridle.conf" || fail 'network guard is not bound to idle lock state'
 grep -q 'pause \[minutes\]' "$root_dir/system/usr/lib/lumen/lumen-network-guard" || fail 'network guard cannot be temporarily paused'
+test -x "$root_dir/system/usr/lib/lumen/lumen-theme" || fail 'theme helper is missing'
+grep -q 'theme <command>' "$root_dir/system/usr/local/bin/lumen" || fail 'theme engine is not exposed through the Lumen CLI'
+grep -q 'fastfetch' "$root_dir/home/.zshrc" || fail 'interactive shell does not show Fastfetch'
+grep -q 'Lumen Arch' "$root_dir/home/.config/fastfetch/config.jsonc" || fail 'Fastfetch does not brand the OS as Lumen Arch'
+grep -q 'Theme Studio' "$root_dir/home/.config/lumen/bin/lumenctl" || fail 'Control Center has no Theme Studio'
 
 printf 'Control Center regression tests passed.\n'

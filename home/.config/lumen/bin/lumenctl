@@ -312,6 +312,36 @@ project_menu() {
   done
 }
 
+theme_menu() {
+  while true; do
+    title
+    local choice name bg surface fg accent success warning danger
+    choice=$(printf '%s\n' \
+      '󰏘  Apply Lumen lavender' \
+      '󰏘  Apply Ocean blue' \
+      '󰏘  Create a custom palette' \
+      '󰋚  Show active palette' \
+      '󰜺  Back' | gum choose --height 10) || return
+    case "$choice" in
+      *lavender*) run lumen theme apply lumen ;;
+      *Ocean*) run lumen theme apply ocean ;;
+      *custom*)
+        name=$(gum input --prompt 'Theme name: ' --value 'My Lumen Theme') || continue
+        bg=$(gum input --prompt 'Background hex: ' --value '#1e1e2e') || continue
+        surface=$(gum input --prompt 'Surface hex: ' --value '#313244') || continue
+        fg=$(gum input --prompt 'Foreground hex: ' --value '#cdd6f4') || continue
+        accent=$(gum input --prompt 'Accent hex: ' --value '#cba6f7') || continue
+        success=$(gum input --prompt 'Success hex: ' --value '#a6e3a1') || continue
+        warning=$(gum input --prompt 'Warning hex: ' --value '#f9e2af') || continue
+        danger=$(gum input --prompt 'Danger hex: ' --value '#f38ba8') || continue
+        run lumen theme custom "$name" "$bg" "$surface" "$fg" "$accent" "$success" "$warning" "$danger"
+        ;;
+      *active*) run lumen theme status ;;
+      *Back*) return ;;
+    esac
+  done
+}
+
 network_guard_menu() {
   while true; do
     title
@@ -371,6 +401,7 @@ main() {
       '󰏁  Lumen update channel' \
       '󰏖  Packages and applications' \
       '󰖨  Appearance and default apps' \
+      '󰏘  Theme Studio' \
       '󰔟  Focus sessions' \
       '󰈙  Projects and snapshots' \
       '󰏗  Local offline repository' \
@@ -383,6 +414,7 @@ main() {
       *update\ channel*) update_channel_menu ;;
       *Packages*) package_menu ;;
       *Appearance*) appearance_menu ;;
+      *Theme\ Studio*) theme_menu ;;
       *Focus*) focus_menu ;;
       *Projects*) project_menu ;;
       *repository*) repository_menu ;;

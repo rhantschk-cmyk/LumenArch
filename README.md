@@ -239,6 +239,10 @@ commands.
   has been locked and idle for ten more minutes; user activity restores only a
   connection that Guard itself turned off. It can be disabled permanently or
   paused temporarily from the same menu.
+- **Theme Studio** applies a local palette across Alacritty, Fastfetch, GTK,
+  Firefox profiles, VS Code settings and Neovim highlights. It includes Lumen
+  and Ocean presets plus a hex-color editor; the terminal card always brands
+  the OS as Lumen Arch.
 - **Configure monitors**, **LazyDocker**, cache cleanup, service control, and
   system overview remain available from the same menu.
 
@@ -261,6 +265,9 @@ lumen network guard enable           # disconnect Wi-Fi/LAN after lock + 10 min 
 lumen network guard pause 60         # temporarily suspend automation and restore connectivity
 lumen network guard disable          # turn the feature off completely
 lumen network guard status
+lumen theme apply ocean              # apply a local cross-app blue palette
+lumen theme custom MyTheme '#111827' '#1f2937' '#e5e7eb' '#60a5fa' '#34d399' '#fbbf24' '#fb7185'
+lumen theme status
 lumen search --select hypr           # choose an official package with FZF
 lumen search --aur --select theme    # choose an AUR package with FZF
 lumen install <package>              # official package, then Yay fallback

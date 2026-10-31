@@ -7,6 +7,7 @@ set -Eeuo pipefail
 repo_helper="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)/usr/lib/lumen/lumen-repo-sync"
 focus_helper="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)/usr/lib/lumen/lumen-focus"
 network_guard_helper="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)/usr/lib/lumen/lumen-network-guard"
+theme_helper="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)/usr/lib/lumen/lumen-theme"
 
 control_center_path() {
   local candidate="$HOME/.config/lumen/bin/lumenctl"
@@ -40,6 +41,7 @@ Everyday commands:
   doctor                         inspect common Lumen session and package health
   focus <command>                run a local timed focus session (start/status/stop)
   network guard <command>        manage lock-idle network isolation and its pause
+  theme <command>                apply or create one local cross-app palette
   shell <package> [--dir path]   enter a temporary CLI environment; optionally mount a work directory
   shell --dir path --config FILE enter the environment declared by project.lumen
   project <command>              manage reproducible local coding projects
@@ -213,6 +215,11 @@ case "${1:-help}" in
     shift
     [[ -x "$network_guard_helper" ]] || { echo 'Lumen Network Guard is not installed. Run: lumen update' >&2; exit 1; }
     exec "$network_guard_helper" "$@"
+    ;;
+  theme)
+    shift
+    [[ -x "$theme_helper" ]] || { echo 'Lumen Theme Studio is not installed. Run: lumen update' >&2; exit 1; }
+    exec "$theme_helper" "$@"
     ;;
   appearance) [[ $# -eq 2 ]] || { help >&2; exit 2; }; appearance "$2" ;;
   default) [[ $# -ge 3 ]] || { help >&2; exit 2; }; default_app "$2" "$3" "${4:-}" ;;
