@@ -327,6 +327,7 @@ instead of allowing the local offline archive to grow without limit.
 
 ```bash
 lumen repo status
+lumen repo verify                 # audit archive/database/source and saved project locks offline
 lumen repo exclusions
 lumen repo sync
 lumen repo add firefox               # download once, retain in the local repo

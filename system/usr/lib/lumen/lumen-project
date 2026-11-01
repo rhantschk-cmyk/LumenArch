@@ -16,9 +16,9 @@ try:
 except ModuleNotFoundError as exc:
     raise SystemExit("Python 3.11 or newer is required for Lumen projects.") from exc
 
-ROOT = Path("/var/lib/lumen/projects")
+ROOT = Path(os.environ.get("LUMEN_PROJECT_ROOT", "/var/lib/lumen/projects"))
 INDEX = ROOT / "index.json"
-REPO = Path("/var/lib/lumen/repo")
+REPO = Path(os.environ.get("LUMEN_REPO_DIR", "/var/lib/lumen/repo"))
 SHELL = "/usr/lib/lumen/lumen-shell"
 NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 PACKAGE = re.compile(r"^[A-Za-z0-9@._+:-]+$")
@@ -384,6 +384,57 @@ def protected_packages():
     print("\n".join(sorted(packages)))
 
 
+def verify_saved_locks():
+    """Read every saved lock without changing archives, locks, or project state."""
+    failures = []
+    checked = 0
+    for lock in sorted(ROOT.glob("*/locks/v*.json")):
+        checked += 1
+        label = str(lock.relative_to(ROOT))
+        try:
+            data = json.loads(lock.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            failures.append(f"{label}: invalid JSON ({exc})")
+            continue
+        packages = data.get("packages") if isinstance(data, dict) else None
+        if not isinstance(packages, list):
+            failures.append(f"{label}: packages must be a list")
+            continue
+        for position, package in sorted(enumerate(packages, start=1), key=lambda item: str(item[1].get("name", "")) if isinstance(item[1], dict) else ""):
+            prefix = f"{label}: package #{position}"
+            if not isinstance(package, dict):
+                failures.append(f"{prefix}: entry must be an object")
+                continue
+            archive = package.get("archive")
+            checksum = package.get("sha256")
+            if not isinstance(archive, str) or not re.fullmatch(r"[A-Za-z0-9@._+:-]+\.pkg\.tar(?:\.[A-Za-z0-9]+)+", archive):
+                failures.append(f"{prefix}: unsafe archive name {archive!r}")
+                continue
+            if not isinstance(checksum, str) or not re.fullmatch(r"[0-9a-f]{64}", checksum):
+                failures.append(f"{prefix}: invalid SHA-256 for {archive}")
+                continue
+            source = REPO / archive
+            try:
+                if not source.is_file() or source.is_symlink():
+                    failures.append(f"{prefix}: locked archive is missing: {archive}")
+                    continue
+                with source.open("rb") as handle:
+                    actual = hashlib.file_digest(handle, "sha256").hexdigest()
+            except OSError as exc:
+                failures.append(f"{prefix}: cannot read {archive} ({exc})")
+                continue
+            if actual != checksum:
+                failures.append(f"{prefix}: locked archive checksum changed: {archive}")
+    print(f"Checked saved project locks: {checked}")
+    if failures:
+        print("Saved project locks are not reproducible:", file=sys.stderr)
+        for failure in failures:
+            print(f"- {failure}", file=sys.stderr)
+        return 1
+    print("Saved project locks: ready")
+    return 0
+
+
 def usage():
     print("""Usage: lumen project <command> [arguments]
 
@@ -402,6 +453,8 @@ Compatibility form: lumen project PROJECT --run|--compile|--shell|--save|--list
 def main(arguments):
     if not arguments or arguments[0] in ("help", "--help", "-h"):
         usage(); return
+    if arguments and arguments[0] == "verify-locks":
+        raise SystemExit(verify_saved_locks())
     require_root()
     if arguments and arguments[0] == "protected-archives":
         protected_archives(); return

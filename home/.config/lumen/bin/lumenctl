@@ -231,6 +231,7 @@ repository_menu() {
     local choice package
     choice=$(printf '%s\n' \
       '󰏗  Repository status' \
+      '󰍎  Verify local archive readiness' \
       '󰆼  Sync Pacman cache now' \
       '󰈔  Add package or archive' \
       '󰏁  Exclude package from local mirror' \
@@ -242,6 +243,7 @@ repository_menu() {
       '󰜺  Back' | gum choose --height 13) || return
     case "$choice" in
       *status*) run lumen repo status ;;
+      *Verify*) run lumen repo verify ;;
       *Sync*) run lumen repo sync ;;
       *Add*) package=$(gum input --prompt 'Package name or archive path: ') || continue; [[ -n "$package" ]] && run lumen repo add "$package" ;;
       *Exclude*) package=$(gum input --prompt 'Package to exclude: ') || continue; [[ -n "$package" ]] && run lumen repo exclude "$package" ;;

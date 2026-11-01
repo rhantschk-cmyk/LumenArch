@@ -2,12 +2,12 @@
 # Root helper for Lumen's local, offline-capable Pacman repository.
 set -Eeuo pipefail
 
-config_file=/etc/lumen/repo.conf
-exclude_file=/etc/lumen/repo-exclude
-holds_file=/etc/lumen/holds
-pacman_fragment=/etc/pacman.conf.d/lumen-local.conf
-holds_fragment=/etc/pacman.conf.d/lumen-holds.conf
-project_helper=/usr/lib/lumen/lumen-project
+config_file=${LUMEN_REPO_CONFIG_FILE:-/etc/lumen/repo.conf}
+exclude_file=${LUMEN_REPO_EXCLUDE_FILE:-/etc/lumen/repo-exclude}
+holds_file=${LUMEN_REPO_HOLDS_FILE:-/etc/lumen/holds}
+pacman_fragment=${LUMEN_PACMAN_FRAGMENT:-/etc/pacman.conf.d/lumen-local.conf}
+holds_fragment=${LUMEN_HOLDS_FRAGMENT:-/etc/pacman.conf.d/lumen-holds.conf}
+project_helper=${LUMEN_PROJECT_HELPER:-/usr/lib/lumen/lumen-project}
 
 if [[ -r "$config_file" ]]; then
   source "$config_file"
@@ -31,6 +31,7 @@ Commands:
   hold <package>           prevent Pacman from updating a package
   unhold <package>         remove Lumen's update hold for a package
   status                   show repository, exclusion, and hold information
+  verify                   audit local archive, database, source, and project-lock readiness
   list                     list archives currently offered by the repository
   exclusions               list packages excluded from the local repository
   prune                    retain two cached versions of packages in the repo
@@ -206,6 +207,81 @@ project_uses_package() {
   "$project_helper" protected-packages 2>/dev/null | grep -Fxq -- "$1"
 }
 
+database_entries() {
+  local database="$1" entry descriptor name version
+  while IFS= read -r entry; do
+    [[ "$entry" == */desc ]] || continue
+    descriptor=$(tar -xOzf "$database" "$entry") || return 1
+    name=$(printf '%s\n' "$descriptor" | sed -n '/^%NAME%$/ { n; p; q; }')
+    version=$(printf '%s\n' "$descriptor" | sed -n '/^%VERSION%$/ { n; p; q; }')
+    [[ -n "$name" && -n "$version" ]] || return 1
+    printf '%s\t%s\n' "$name" "$version"
+  done < <(tar -tzf "$database") | LC_ALL=C sort -u
+}
+
+verify_repository() {
+  local -a archives=()
+  local archive temporary expected_db actual_entries expected_entries failures=0
+  shopt -s nullglob
+  for archive in "$REPO_DIR"/*.pkg.tar.*; do
+    [[ "$archive" == *.sig ]] && continue
+    archives+=("$archive")
+  done
+
+  if ((${#archives[@]} == 0)); then
+    echo 'Local archive: empty (nothing to verify; seed it with `lumen repo sync` or `lumen repo add`).'
+    "$project_helper" verify-locks
+    return
+  fi
+
+  command -v pacman >/dev/null || { echo 'Local archive: Pacman metadata reader is unavailable; install Pacman tooling locally.' >&2; return 1; }
+  command -v repo-add >/dev/null || { echo 'Local archive: repo-add is unavailable; install pacman-contrib locally.' >&2; return 1; }
+  [[ -r "$pacman_fragment" ]] || { echo "Pacman source: missing fragment $pacman_fragment; run \`lumen repo sync\`." >&2; failures=1; }
+  if [[ -r "$pacman_fragment" ]] && ! grep -Fqx "[$REPO_NAME]" "$pacman_fragment"; then
+    echo "Pacman source: $pacman_fragment does not enable [$REPO_NAME]; run \`lumen repo sync\`." >&2
+    failures=1
+  fi
+  if [[ -r "$pacman_fragment" ]] && ! grep -Fqx "Server = file://$REPO_DIR" "$pacman_fragment"; then
+    echo "Pacman source: $pacman_fragment does not point to $REPO_DIR; run \`lumen repo sync\`." >&2
+    failures=1
+  fi
+  for archive in "${archives[@]}"; do
+    if ! pacman -Qp -q "$archive" >/dev/null; then
+      echo "Archive metadata: unreadable $archive; recreate this local archive." >&2
+      failures=1
+    fi
+  done
+
+  if [[ ! -r "$repo_db" ]]; then
+    echo "Repository database: missing $repo_db; run \`lumen repo sync\`." >&2
+    failures=1
+  else
+    temporary=$(mktemp -d)
+    expected_db="$temporary/$REPO_NAME.db.tar.gz"
+    if ! repo-add "$expected_db" "${archives[@]}" >/dev/null; then
+      echo 'Repository database: could not derive expected entries from local archives.' >&2
+      failures=1
+    elif ! actual_entries=$(database_entries "$repo_db"); then
+      echo "Repository database: unreadable $repo_db; run \`lumen repo sync\`." >&2
+      failures=1
+    elif ! expected_entries=$(database_entries "$expected_db"); then
+      echo 'Repository database: generated expected database is unreadable.' >&2
+      failures=1
+    elif [[ "$actual_entries" != "$expected_entries" ]]; then
+      echo "Repository database: entries are stale or incomplete; run \`lumen repo sync\`." >&2
+      failures=1
+    fi
+    rm -rf -- "$temporary"
+  fi
+
+  if "$project_helper" verify-locks; then :; else failures=1; fi
+  if ((failures)); then
+    echo 'Local repository readiness: failed. Repair archives or run `lumen repo sync`; no files were changed.' >&2
+    return 1
+  fi
+  printf 'Local repository readiness: ready (%s archive(s), source/database and saved locks verified).\n' "${#archives[@]}"
+}
+
 case "${1:-}" in
   --from-cache|sync) sync_repository ;;
   add) [[ $# -eq 2 ]] || { usage >&2; exit 2; }; add_archive_or_package "$2" ;;
@@ -239,6 +315,7 @@ case "${1:-}" in
     sync_repository
     ;;
   status) status ;;
+  verify) verify_repository ;;
   list) list_archives ;;
   exclusions) list_exclusions ;;
   -h|--help|help|'') usage ;;
