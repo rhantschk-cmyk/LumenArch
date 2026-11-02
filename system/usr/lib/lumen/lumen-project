@@ -374,6 +374,25 @@ def protected_archives():
             continue
 
 
+def protected_archive_locks():
+    """Print safe saved-lock archive ownership for read-only repo reporting."""
+    associations = []
+    for lock in sorted(ROOT.glob("*/locks/v*.json")):
+        label = str(lock.relative_to(ROOT))
+        try:
+            packages = json.loads(lock.read_text(encoding="utf-8")).get("packages", [])
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(packages, list):
+            continue
+        for package in packages:
+            archive = package.get("archive") if isinstance(package, dict) else None
+            if isinstance(archive, str) and re.fullmatch(r"[A-Za-z0-9@._+:-]+\.pkg\.tar(?:\.[A-Za-z0-9]+)+", archive):
+                associations.append((archive, label))
+    for archive, label in sorted(set(associations)):
+        print(f"{archive}\t{label}")
+
+
 def protected_packages():
     packages = set()
     for lock in ROOT.glob("*/locks/v*.json"):
@@ -455,11 +474,13 @@ def main(arguments):
         usage(); return
     if arguments and arguments[0] == "verify-locks":
         raise SystemExit(verify_saved_locks())
-    require_root()
     if arguments and arguments[0] == "protected-archives":
         protected_archives(); return
+    if arguments and arguments[0] == "protected-archive-locks":
+        protected_archive_locks(); return
     if arguments and arguments[0] == "protected-packages":
         protected_packages(); return
+    require_root()
     if arguments and arguments[0] == "shell-config":
         if len(arguments) != 2:
             die("usage: lumen shell --dir DIRECTORY --config DIRECTORY/project.lumen", 2)

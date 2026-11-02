@@ -238,6 +238,7 @@ repository_menu() {
       '󰏂  Re-include excluded package' \
       '󰏖  List locally available packages' \
       '󰋺  Show local exclusions' \
+      '󰍎  Preview archive cleanup' \
       '󰆴  Prune old archive versions' \
       '󰅖  Show package holds' \
       '󰜺  Back' | gum choose --height 13) || return
@@ -250,6 +251,7 @@ repository_menu() {
       *Re-include*) package=$(gum input --prompt 'Package to include again: ') || continue; [[ -n "$package" ]] && run lumen repo unexclude "$package" ;;
       *List*) run lumen repo list ;;
       *exclusions*) run lumen repo exclusions ;;
+      *Preview*) run lumen repo prune --preview ;;
       *Prune*) gum confirm 'Retain only two versions per package?' && run lumen repo prune ;;
       *holds*) run lumen package list-holds ;;
       *Back*) return ;;

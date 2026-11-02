@@ -70,7 +70,7 @@ Offline repository commands:
   repo add <package|archive>     add an archive or fetch one official package
   repo exclude <package>         omit a package from the local repository
   repo unexclude <package>       include it in later repository syncs
-  repo prune                     retain two archive versions per package
+  repo prune [--preview]         preview or retain two archive versions per package
 
 Run 'lumen help' to display this text. Administrative commands ask sudo only
 for the operation that requires it.
@@ -266,6 +266,7 @@ case "${1:-help}" in
     shift
     case "${1:-}" in
       status|list|exclusions|verify|-h|--help|help) exec "$repo_helper" "$@" ;;
+      prune) [[ "${2:-}" == --preview && $# -eq 2 ]] && exec "$repo_helper" "$@" || exec sudo "$repo_helper" "$@" ;;
       *) exec sudo "$repo_helper" "$@" ;;
     esac
     ;;

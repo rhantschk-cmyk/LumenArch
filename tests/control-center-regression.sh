@@ -94,5 +94,7 @@ grep -q "'󰏘  Theme Studio'" "$source_file" || fail 'Theme Studio is not direc
 grep -q "'󰔟  Focus sessions'" "$source_file" || fail 'Focus Sessions are not directly discoverable'
 grep -q "'󰈙  Projects and snapshots'" "$source_file" || fail 'Projects are not directly discoverable'
 grep -q "'󰖩  Network privacy guard'" "$source_file" || fail 'Network Guard is not directly discoverable'
+grep -q 'Preview archive cleanup' "$source_file" || fail 'archive cleanup preview is not reachable'
+grep -q 'lumen repo prune --preview' "$source_file" || fail 'archive cleanup preview does not use the repository CLI'
 
 printf 'Control Center regression tests passed.\n'

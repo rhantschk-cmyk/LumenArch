@@ -34,7 +34,7 @@ Commands:
   verify                   audit local archive, database, source, and project-lock readiness
   list                     list archives currently offered by the repository
   exclusions               list packages excluded from the local repository
-  prune                    retain two cached versions of packages in the repo
+  prune [--preview]        retain two cached versions of packages in the repo
 EOF
 }
 
@@ -282,6 +282,66 @@ verify_repository() {
   printf 'Local repository readiness: ready (%s archive(s), source/database and saved locks verified).\n' "${#archives[@]}"
 }
 
+preview_prune() {
+  local protected_csv output line total=0 lock_archive lock_path
+  local -a protected=() candidates=() associations=() repo_archives=()
+  shopt -s nullglob
+  for line in "$REPO_DIR"/*.pkg.tar.*; do
+    [[ "$line" == *.sig ]] || repo_archives+=("$line")
+  done
+
+  # Saved locks are the source of truth for exact offline reproducibility.
+  # Abort instead of guessing if one names an unsafe, missing, or changed archive.
+  if ! "$project_helper" verify-locks; then
+    echo 'Archive cleanup preview: saved locks are not ready; run `lumen repo verify` before pruning.' >&2
+    return 1
+  fi
+  if ((${#repo_archives[@]} == 0)); then
+    echo 'Archive cleanup preview: local repository is empty.'
+    return
+  fi
+  command -v paccache >/dev/null || { echo 'Archive cleanup preview: paccache is unavailable; install pacman-contrib locally.' >&2; return 1; }
+  mapfile -t protected < <("$project_helper" protected-packages)
+  if ((${#protected[@]})); then
+    protected_csv=$(IFS=,; printf '%s' "${protected[*]}")
+    output=$(paccache -dk2v --nocolor -c "$REPO_DIR" --ignore "$protected_csv") || {
+      echo 'Archive cleanup preview: paccache could not calculate the local retention plan.' >&2
+      return 1
+    }
+  else
+    output=$(paccache -dk2v --nocolor -c "$REPO_DIR") || {
+      echo 'Archive cleanup preview: paccache could not calculate the local retention plan.' >&2
+      return 1
+    }
+  fi
+  while IFS= read -r line; do
+    [[ -f "$line" && ! -L "$line" && "$(dirname -- "$line")" == "$REPO_DIR" ]] || continue
+    [[ "$line" == "$REPO_DIR"/*.pkg.tar.* && "$line" != *.sig ]] || continue
+    candidates+=("$line")
+    total=$((total + $(stat -c '%s' -- "$line")))
+  done <<< "$output"
+  mapfile -t associations < <("$project_helper" protected-archive-locks)
+
+  echo 'Archive cleanup preview (read-only; normal prune retains two versions per package).'
+  if ((${#candidates[@]})); then
+    echo 'Removal candidates:'
+    printf '%s\n' "${candidates[@]}" | LC_ALL=C sort | sed 's#^#- #'
+  else
+    echo 'Removal candidates: none'
+  fi
+  printf 'Reclaimable bytes: %s\n' "$total"
+  if ((${#associations[@]})); then
+    echo 'Saved snapshot-protected archives:'
+    for line in "${associations[@]}"; do
+      lock_archive=${line%%$'\t'*}
+      lock_path=${line#*$'\t'}
+      printf -- '- %s required by %s\n' "$lock_archive" "$lock_path"
+    done
+  else
+    echo 'Saved snapshot-protected archives: none'
+  fi
+}
+
 case "${1:-}" in
   --from-cache|sync) sync_repository ;;
   add) [[ $# -eq 2 ]] || { usage >&2; exit 2; }; add_archive_or_package "$2" ;;
@@ -304,6 +364,11 @@ case "${1:-}" in
     esac
     ;;
   prune)
+    if [[ "${2:-}" == --preview && $# -eq 2 ]]; then
+      preview_prune
+      exit $?
+    fi
+    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
     require_root
     mapfile -t protected < <([[ -x "$project_helper" ]] && "$project_helper" protected-packages || true)
     if ((${#protected[@]})); then
