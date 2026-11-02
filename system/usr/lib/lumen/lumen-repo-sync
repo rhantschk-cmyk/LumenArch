@@ -181,7 +181,7 @@ status() {
   [[ -f "$exclude_file" ]] && excluded=$(grep -Evc '^(#|$)' "$exclude_file" || true)
   [[ -f "$holds_file" ]] && held=$(grep -Evc '^(#|$)' "$holds_file" || true)
   printf 'Repository: %s\nArchives: %s\nExcluded: %s\nHeld updates: %s\n' "$REPO_DIR" "$archive_count" "$excluded" "$held"
-  [[ -f "$pacman_fragment" ]] && echo 'Pacman source: enabled' || echo 'Pacman source: disabled until the first archive is synced'
+  [[ -r "$pacman_fragment" ]] && grep -Fqx "[$REPO_NAME]" "$pacman_fragment" && echo 'Pacman source: enabled' || echo 'Pacman source: disabled until the first archive is synced'
 }
 
 list_archives() {

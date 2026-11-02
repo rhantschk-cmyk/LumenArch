@@ -107,6 +107,10 @@ rm "$repo_dir/bar-2.0-1-x86_64.pkg.tar.zst"
 PATH="$mock_bin:$PATH" repo-add "$repo_dir/lumen-local.db.tar.gz" "$repo_dir/foo-1.0-1-x86_64.pkg.tar.zst"
 
 : > "$fragment"
+PATH="$mock_bin:$PATH" \
+  LUMEN_REPO_CONFIG_FILE="$config_file" \
+  LUMEN_PACMAN_FRAGMENT="$fragment" \
+  "$helper" status | grep -Fqx 'Pacman source: disabled until the first archive is synced' || fail 'empty Pacman fragment was reported as enabled'
 expect_failure 'does not enable [lumen-local]'
 cat > "$fragment" <<EOF
 [lumen-local]
