@@ -96,5 +96,7 @@ grep -q "'󰈙  Projects and snapshots'" "$source_file" || fail 'Projects are no
 grep -q "'󰖩  Network privacy guard'" "$source_file" || fail 'Network Guard is not directly discoverable'
 grep -q 'Preview archive cleanup' "$source_file" || fail 'archive cleanup preview is not reachable'
 grep -q 'lumen repo prune --preview' "$source_file" || fail 'archive cleanup preview does not use the repository CLI'
+grep -q 'Rehearse saved snapshot offline' "$source_file" || fail 'offline snapshot rehearsal is not reachable'
+grep -q 'lumen project doctor "$project" --version "$version"' "$source_file" || fail 'offline snapshot rehearsal does not use the project doctor CLI'
 
 printf 'Control Center regression tests passed.\n'

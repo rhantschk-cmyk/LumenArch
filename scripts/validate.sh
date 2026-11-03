@@ -23,10 +23,12 @@ for script in "$root_dir"/scripts/*.sh; do bash -n "$script"; done
 for script in "$root_dir"/iso/airootfs/usr/local/bin/*; do bash -n "$script"; done
 for script in "$root_dir"/home/.config/lumen/scripts/*.sh; do bash -n "$script"; done
 for script in "$root_dir"/home/.config/lumen/bin/*; do
+  [[ -f "$script" ]] || continue
   [[ "$script" == "$root_dir/home/.config/lumen/bin/lumen-omarchy" ]] && continue
   bash -n "$script"
 done
 for script in "$root_dir"/system/usr/local/bin/* "$root_dir"/system/usr/lib/lumen/*; do
+  [[ -f "$script" ]] || continue
   [[ "$script" == "$root_dir/system/usr/lib/lumen/lumen-project" ]] && continue
   bash -n "$script"
 done
@@ -135,6 +137,10 @@ grep -q -- 'shell <package> \[--dir path\]' "$root_dir/system/usr/local/bin/lume
 test -x "$root_dir/system/usr/lib/lumen/lumen-project"
 "$python_bin" -c 'import sys; compile(open(sys.argv[1], encoding="utf-8").read(), sys.argv[1], "exec")' "$root_dir/system/usr/lib/lumen/lumen-project"
 grep -q 'locked_repository' "$root_dir/system/usr/lib/lumen/lumen-project"
+grep -q 'rehearse_snapshot' "$root_dir/system/usr/lib/lumen/lumen-project"
+grep -q 'doctor \[project\] \[--version v000001\]' "$root_dir/system/usr/lib/lumen/lumen-project"
+test -x "$root_dir/tests/project-offline-rehearsal.py"
+"$python_bin" "$root_dir/tests/project-offline-rehearsal.py"
 test -x "$root_dir/system/usr/lib/lumen/lumen-snapshot"
 grep -q 'Usage: lumen snapshot <packages|environment|repo|dir|all>' "$root_dir/system/usr/lib/lumen/lumen-snapshot"
 grep -q 'creates an automatic pre-restore snapshot first' "$root_dir/system/usr/lib/lumen/lumen-snapshot"

@@ -210,10 +210,10 @@ done
 for package in "${packages[@]}"; do
   valid_package_name "$package" || { echo "Invalid package name: $package" >&2; exit 2; }
 done
-# A normal shell always has a workspace.  This makes `lumen shell PACKAGE`
-# equivalent to `lumen shell PACKAGE --dir .` and keeps host file ownership
-# consistent for all interactive environments.
-if [[ -z "$workspace_dir" ]]; then
+# A normal shell always has a workspace.  Preparation is different: it only
+# proves a package root can bootstrap and must not touch or mount a project
+# directory.
+if [[ -z "$workspace_dir" && "$prepare_only" != true ]]; then
   workspace_dir=$(realpath -e -- .)
 fi
 if [[ "$prepare_only" == true && -n "$command_to_run" ]]; then

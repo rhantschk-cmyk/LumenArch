@@ -44,7 +44,7 @@ Everyday commands:
   theme <command>                apply or create one local cross-app palette
   shell <package> [--dir path]   enter a temporary CLI environment; optionally mount a work directory
   shell --dir path --config FILE enter the environment declared by project.lumen
-  project <command>              manage reproducible local coding projects
+  project <command>              manage reproducible projects; doctor --version rehearses a saved offline closure
   snapshot <target> <action>     manage local system and directory snapshots
   omarchy <command>              manage compatible Omarchy bar widgets in Lumen
   appearance <dark|light>        set GTK and portal colour preference

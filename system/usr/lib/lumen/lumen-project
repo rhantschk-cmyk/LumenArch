@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Root-backed project registry, reproducible environments, and snapshots."""
 import hashlib
+import errno
 import json
 import os
 import re
@@ -19,7 +20,7 @@ except ModuleNotFoundError as exc:
 ROOT = Path(os.environ.get("LUMEN_PROJECT_ROOT", "/var/lib/lumen/projects"))
 INDEX = ROOT / "index.json"
 REPO = Path(os.environ.get("LUMEN_REPO_DIR", "/var/lib/lumen/repo"))
-SHELL = "/usr/lib/lumen/lumen-shell"
+SHELL = os.environ.get("LUMEN_SHELL_HELPER", "/usr/lib/lumen/lumen-shell")
 NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 PACKAGE = re.compile(r"^[A-Za-z0-9@._+:-]+$")
 
@@ -219,7 +220,7 @@ def prepare_lock(ident, cfg, version="current"):
 
 def load_version_lock(ident, version):
     path = lock_path(ident, version)
-    if not path.is_file():
+    if not path.is_file() or path.is_symlink():
         die(f"package lock not found for snapshot: {version}")
     try:
         packages = json.loads(path.read_text()).get("packages", [])
@@ -230,25 +231,81 @@ def load_version_lock(ident, version):
     return packages
 
 
+def saved_snapshot_manifest(ident, version):
+    path = ROOT / ident / "manifests" / f"{version}.lumen"
+    if not path.is_file() or path.is_symlink():
+        die(f"saved manifest not found for snapshot: {version}")
+    try:
+        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+        environment = raw["Environment"]
+        packages = environment["Packages"]
+        mode = environment.get("Mode", "shell")
+    except (OSError, tomllib.TOMLDecodeError, KeyError, TypeError) as exc:
+        die(f"invalid saved manifest for snapshot {version}: {exc}")
+    if not isinstance(packages, list) or not packages or not all(isinstance(item, str) and PACKAGE.fullmatch(item) for item in packages):
+        die(f"invalid saved manifest for snapshot {version}: Environment.Packages must be a non-empty list of official package names")
+    if mode != "shell":
+        die(f"saved snapshot {version} cannot be rehearsed because Environment.Mode is not shell")
+    return list(dict.fromkeys(packages))
+
+
 def locked_repository(packages):
     temporary = tempfile.TemporaryDirectory(prefix="lumen-project-repo.", dir="/run")
     directory = Path(temporary.name)
+    if not isinstance(packages, list) or not packages:
+        temporary.cleanup(); die("project package lock is empty")
     for package in packages:
-        archive = package.get("archive")
-        checksum = package.get("sha256")
-        if not isinstance(archive, str) or not isinstance(checksum, str) or "/" in archive:
+        archive = package.get("archive") if isinstance(package, dict) else None
+        checksum = package.get("sha256") if isinstance(package, dict) else None
+        name = package.get("name") if isinstance(package, dict) else None
+        if (not isinstance(name, str) or not PACKAGE.fullmatch(name)
+                or not isinstance(archive, str)
+                or not re.fullmatch(r"[A-Za-z0-9@._+:-]+\.pkg\.tar(?:\.[A-Za-z0-9]+)+", archive)
+                or not isinstance(checksum, str) or not re.fullmatch(r"[0-9a-f]{64}", checksum)):
             temporary.cleanup(); die("project package lock contains an invalid archive")
         source = REPO / archive
-        if not source.is_file():
+        if not source.is_file() or source.is_symlink():
             temporary.cleanup(); die(f"locked archive is missing: {archive}")
         with source.open("rb") as handle:
             if hashlib.file_digest(handle, "sha256").hexdigest() != checksum:
                 temporary.cleanup(); die(f"locked archive checksum changed: {archive}")
-        os.link(source, directory / archive)
+        destination = directory / archive
+        try:
+            os.link(source, destination)
+        except OSError as exc:
+            # /var/lib and /run can be separate filesystems. The staged copy is
+            # still disposable and leaves the verified local archive untouched.
+            if exc.errno != errno.EXDEV:
+                temporary.cleanup(); die(f"cannot stage locked archive: {archive} ({exc})")
+            shutil.copy2(source, destination)
     archives = [str(item) for item in directory.glob("*.pkg.tar.*") if not item.name.endswith(".sig")]
     run(["repo-add", str(directory / "lumen-local.db.tar.gz"), *archives])
     os.link(directory / "lumen-local.db.tar.gz", directory / "lumen-local.db")
     return temporary, directory
+
+
+def rehearse_snapshot(ident, record, version):
+    if not re.fullmatch(r"v\d{6}", version):
+        die("snapshot version must use the form v000001", 2)
+    snapshot = ROOT / ident / "snapshots" / f"{version}.tar.zst"
+    if not snapshot.is_file() or snapshot.is_symlink():
+        die(f"snapshot not found: {version}")
+    packages = load_version_lock(ident, version)
+    manifest_packages = saved_snapshot_manifest(ident, version)
+    temporary, directory = locked_repository(packages)
+    try:
+        command = [SHELL]
+        for package in manifest_packages:
+            command += ["--package", package]
+        command += ["--repo-dir", str(directory), "--offline-only", "--prepare"]
+        print(f"Offline snapshot rehearsal: {record['name']} ({version})")
+        print("Checking the saved package closure only; project commands and files are not run.")
+        result = run(command, check=False)
+        if result.returncode:
+            die(f"offline package closure could not bootstrap for {version}; inspect the local archive with `lumen repo verify`", result.returncode)
+    finally:
+        temporary.cleanup()
+    print(f"Offline snapshot rehearsal: ready ({record['name']} {version})")
 
 
 def run_in_environment(cfg, command, packages=None):
@@ -459,7 +516,7 @@ def usage():
 
 Commands:
   init [directory] --name NAME --description TEXT
-  list | status [project] | doctor [project]
+  list | status [project] | doctor [project] [--version v000001]
   prepare [project] | shell [project] | run [project] | compile [project]
   save [project] [--label TEXT] | versions [project]
   restore [project] --version VERSION --yes
@@ -527,6 +584,10 @@ def main(arguments):
     if rest and not rest[0].startswith("--") and selector is None:
         selector, rest = rest[0], rest[1:]
     ident, record, _ = project_record(selector)
+    if command == "doctor" and rest:
+        if len(rest) != 2 or rest[0] != "--version":
+            die("usage: lumen project doctor [project] --version v000001", 2)
+        rehearse_snapshot(ident, record, rest[1]); return
     cfg = parse_config(Path(record["path"]))
     if command in ("status", "doctor"):
         show_status(ident, record, cfg); return

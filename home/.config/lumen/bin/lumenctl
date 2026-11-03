@@ -293,6 +293,7 @@ project_menu() {
       '󰅩  Compile project' \
       '󰆴  Save project snapshot' \
       '󰋚  List project versions' \
+      '󰍎  Rehearse saved snapshot offline' \
       '󰜺  Back' | gum choose --height 12) || return
     case "$choice" in
       *List\ registered*) run lumen project list ;;
@@ -311,6 +312,11 @@ project_menu() {
         if [[ -n "$label" ]]; then run lumen project save $project --label "$label"; else run lumen project save $project; fi
         ;;
       *versions*) project=$(gum input --prompt 'Project name (empty = current directory): ') || continue; run lumen project versions $project ;;
+      *Rehearse*)
+        project=$(gum input --prompt 'Registered project name: ') || continue
+        version=$(gum input --prompt 'Saved version (for example v000001): ') || continue
+        [[ -n "$project" && -n "$version" ]] && run lumen project doctor "$project" --version "$version"
+        ;;
       *Back*) return ;;
     esac
   done
