@@ -284,12 +284,20 @@ def locked_repository(packages):
     return temporary, directory
 
 
+def validate_snapshot_archive(snapshot, version):
+    result = run(["tar", "--zstd", "-tf", str(snapshot)], check=False,
+                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    if result.returncode:
+        die(f"snapshot archive is invalid: {version}")
+
+
 def rehearse_snapshot(ident, record, version):
     if not re.fullmatch(r"v\d{6}", version):
         die("snapshot version must use the form v000001", 2)
     snapshot = ROOT / ident / "snapshots" / f"{version}.tar.zst"
     if not snapshot.is_file() or snapshot.is_symlink():
         die(f"snapshot not found: {version}")
+    validate_snapshot_archive(snapshot, version)
     packages = load_version_lock(ident, version)
     manifest_packages = saved_snapshot_manifest(ident, version)
     temporary, directory = locked_repository(packages)

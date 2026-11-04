@@ -57,7 +57,7 @@ with tempfile.TemporaryDirectory() as temporary:
 
     def failing_run(command, check=True, **kwargs):
         calls.append(command)
-        return type("Result", (), {"returncode": 23})()
+        return type("Result", (), {"returncode": 0 if command[0] == "tar" else 23})()
 
     module.run = failing_run
     try:
@@ -75,6 +75,20 @@ with tempfile.TemporaryDirectory() as temporary:
         exc.code == 2 or fail("unsafe version selector used the wrong exit code")
     else:
         fail("unsafe version selector was accepted")
+
+    def invalid_snapshot_run(command, check=True, **kwargs):
+        calls.append(command)
+        return type("Result", (), {"returncode": 2 if command[0] == "tar" else 0})()
+
+    setattr(module, "run", invalid_snapshot_run)
+    try:
+        module.rehearse_snapshot(ident, {"name": "Demo"}, "v000001")
+    except SystemExit:
+        pass
+    else:
+        fail("invalid snapshot archive was accepted")
+    calls[-1][0] == "tar" or fail("invalid snapshot reached the shell helper")
+    setattr(module, "run", fake_run)
 
     (project / "locks/v000001.json").unlink()
     try:
