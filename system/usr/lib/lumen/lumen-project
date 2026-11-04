@@ -252,8 +252,28 @@ def saved_snapshot_manifest(ident, version):
 def locked_repository(packages):
     temporary = tempfile.TemporaryDirectory(prefix="lumen-project-repo.", dir="/run")
     directory = Path(temporary.name)
+    archives = validated_locked_archives(packages)
+    for source in archives:
+        destination = directory / source.name
+        try:
+            os.link(source, destination)
+        except OSError as exc:
+            # /var/lib and /run can be separate filesystems. The staged copy is
+            # still disposable and leaves the verified local archive untouched.
+            if exc.errno != errno.EXDEV:
+                temporary.cleanup(); die(f"cannot stage locked archive: {source.name} ({exc})")
+            shutil.copy2(source, destination)
+    staged = [str(item) for item in sorted(directory.glob("*.pkg.tar.*")) if not item.name.endswith(".sig")]
+    run(["repo-add", str(directory / "lumen-local.db.tar.gz"), *staged])
+    os.link(directory / "lumen-local.db.tar.gz", directory / "lumen-local.db")
+    return temporary, directory
+
+
+def validated_locked_archives(packages):
     if not isinstance(packages, list) or not packages:
-        temporary.cleanup(); die("project package lock is empty")
+        die("project package lock is empty")
+    archives = []
+    seen = set()
     for package in packages:
         archive = package.get("archive") if isinstance(package, dict) else None
         checksum = package.get("sha256") if isinstance(package, dict) else None
@@ -262,26 +282,18 @@ def locked_repository(packages):
                 or not isinstance(archive, str)
                 or not re.fullmatch(r"[A-Za-z0-9@._+:-]+\.pkg\.tar(?:\.[A-Za-z0-9]+)+", archive)
                 or not isinstance(checksum, str) or not re.fullmatch(r"[0-9a-f]{64}", checksum)):
-            temporary.cleanup(); die("project package lock contains an invalid archive")
+            die("project package lock contains an invalid archive")
+        if archive in seen:
+            die(f"project package lock contains a duplicate archive: {archive}")
+        seen.add(archive)
         source = REPO / archive
         if not source.is_file() or source.is_symlink():
-            temporary.cleanup(); die(f"locked archive is missing: {archive}")
+            die(f"locked archive is missing: {archive}")
         with source.open("rb") as handle:
             if hashlib.file_digest(handle, "sha256").hexdigest() != checksum:
-                temporary.cleanup(); die(f"locked archive checksum changed: {archive}")
-        destination = directory / archive
-        try:
-            os.link(source, destination)
-        except OSError as exc:
-            # /var/lib and /run can be separate filesystems. The staged copy is
-            # still disposable and leaves the verified local archive untouched.
-            if exc.errno != errno.EXDEV:
-                temporary.cleanup(); die(f"cannot stage locked archive: {archive} ({exc})")
-            shutil.copy2(source, destination)
-    archives = [str(item) for item in directory.glob("*.pkg.tar.*") if not item.name.endswith(".sig")]
-    run(["repo-add", str(directory / "lumen-local.db.tar.gz"), *archives])
-    os.link(directory / "lumen-local.db.tar.gz", directory / "lumen-local.db")
-    return temporary, directory
+                die(f"locked archive checksum changed: {archive}")
+        archives.append(source)
+    return sorted(archives, key=lambda item: item.name)
 
 
 def validate_snapshot_archive(snapshot, version):
@@ -314,6 +326,91 @@ def rehearse_snapshot(ident, record, version):
     finally:
         temporary.cleanup()
     print(f"Offline snapshot rehearsal: ready ({record['name']} {version})")
+
+
+def safe_export_destination(value):
+    destination = Path(value)
+    if not destination.is_absolute() or ".." in destination.parts:
+        die("export destination must be an absolute local directory without ..", 2)
+    current = Path(destination.anchor)
+    for part in destination.parts[1:-1]:
+        current /= part
+        if current.is_symlink():
+            die("export destination may not pass through a symlink")
+    parent = destination.parent
+    if not parent.is_dir() or parent.is_symlink():
+        die(f"export destination parent is not a real directory: {parent}")
+    if os.path.lexists(destination):
+        if destination.is_symlink():
+            die("export destination may not be a symlink")
+        if not destination.is_dir() or any(destination.iterdir()):
+            die(f"export destination already exists and is not empty: {destination}")
+        destination.rmdir()
+    return destination
+
+
+def sha256_file(path):
+    with path.open("rb") as handle:
+        return hashlib.file_digest(handle, "sha256").hexdigest()
+
+
+def write_recovery_instructions(destination, record, version):
+    (destination / "RECOVERY.md").write_text(
+        "# Lumen offline snapshot recovery kit\n\n"
+        f"Project: {record['name']}\nVersion: {version}\n\n"
+        "This immutable local artifact contains one saved project snapshot, its saved "
+        "manifest, exact package lock, locked local archives, and a generated local "
+        "Pacman database. Verify SHA256SUMS before relying on it. It does not restore "
+        "a workspace, register a project, execute project code, or replace separate backups.\n",
+        encoding="utf-8",
+    )
+
+
+def write_checksum_manifest(destination):
+    files = sorted(path for path in destination.rglob("*") if path.is_file() and path.name != "SHA256SUMS")
+    lines = [f"{sha256_file(path)}  {path.relative_to(destination).as_posix()}" for path in files]
+    (destination / "SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def export_snapshot(ident, record, version, destination_value):
+    if not re.fullmatch(r"v\d{6}", version):
+        die("snapshot version must use the form v000001", 2)
+    snapshot = ROOT / ident / "snapshots" / f"{version}.tar.zst"
+    if not snapshot.is_file() or snapshot.is_symlink():
+        die(f"snapshot not found: {version}")
+    validate_snapshot_archive(snapshot, version)
+    manifest = ROOT / ident / "manifests" / f"{version}.lumen"
+    manifest_packages = saved_snapshot_manifest(ident, version)
+    packages = load_version_lock(ident, version)
+    archives = validated_locked_archives(packages)
+    destination = safe_export_destination(destination_value)
+    sources = [snapshot, manifest, lock_path(ident, version), *archives]
+    required = sum(path.stat().st_size for path in sources) + 64 * 1024 * 1024
+    if shutil.disk_usage(destination.parent).free < required:
+        die(f"insufficient free space for offline recovery kit at {destination.parent}")
+    temporary = Path(tempfile.mkdtemp(prefix=".lumen-project-export.", dir=destination.parent))
+    try:
+        metadata = temporary / "metadata"
+        archive_dir = temporary / "packages"
+        metadata.mkdir()
+        archive_dir.mkdir()
+        shutil.copy2(snapshot, metadata / "snapshot.tar.zst")
+        shutil.copy2(manifest, metadata / "project.lumen")
+        shutil.copy2(lock_path(ident, version), metadata / "package-lock.json")
+        for source in archives:
+            shutil.copy2(source, archive_dir / source.name)
+        copied_archives = [str(archive_dir / source.name) for source in archives]
+        run(["repo-add", str(archive_dir / "lumen-local.db.tar.gz"), *copied_archives])
+        os.link(archive_dir / "lumen-local.db.tar.gz", archive_dir / "lumen-local.db")
+        write_recovery_instructions(temporary, record, version)
+        write_checksum_manifest(temporary)
+        os.replace(temporary, destination)
+    except BaseException:
+        shutil.rmtree(temporary, ignore_errors=True)
+        raise
+    total = sum(path.stat().st_size for path in destination.rglob("*") if path.is_file())
+    print(f"Offline recovery kit exported: {destination}")
+    print(f"Archives: {len(archives)}; bytes: {total}; checksums: {destination / 'SHA256SUMS'}")
 
 
 def run_in_environment(cfg, command, packages=None):
@@ -527,6 +624,7 @@ Commands:
   list | status [project] | doctor [project] [--version v000001]
   prepare [project] | shell [project] | run [project] | compile [project]
   save [project] [--label TEXT] | versions [project]
+  export [project] --version v000001 --to ABSOLUTE_DIRECTORY
   restore [project] --version VERSION --yes
   diff [project] VERSION_A VERSION_B | remove PROJECT --yes
 
@@ -581,7 +679,7 @@ def main(arguments):
         ident, _, index = project_record(rest[0]); shutil.rmtree(ROOT / ident, ignore_errors=True); del index["projects"][ident]; atomic_json(INDEX, index)
         print(f"Removed Lumen metadata for {rest[0]}; project files were not touched."); return
     # Accept subcommands and the documented PROJECT --action compatibility form.
-    actions = {"status", "doctor", "prepare", "shell", "run", "compile", "save", "versions", "restore", "diff"}
+    actions = {"status", "doctor", "prepare", "shell", "run", "compile", "save", "versions", "export", "restore", "diff"}
     selector = None
     if command not in actions:
         selector, rest = command, rest
@@ -620,6 +718,10 @@ def main(arguments):
     if command == "versions":
         for item in versions(ident): print(f"{item.get('version')}\t{item.get('created_at')}\t{item.get('label', '')}")
         return
+    if command == "export":
+        if len(rest) != 4 or rest[0] != "--version" or rest[2] != "--to":
+            die("usage: lumen project export [project] --version v000001 --to ABSOLUTE_DIRECTORY", 2)
+        export_snapshot(ident, record, rest[1], rest[3]); return
     if command == "restore":
         if len(rest) != 3 or rest[0] != "--version" or rest[2] != "--yes": die("usage: lumen project restore [project] --version VERSION --yes", 2)
         restore_snapshot(ident, cfg, rest[1], True); return

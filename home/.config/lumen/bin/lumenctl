@@ -284,7 +284,7 @@ focus_menu() {
 project_menu() {
   while true; do
     title
-    local choice directory name description project version label
+    local choice directory name description project version label destination
     choice=$(printf '%s\n' \
       '󰏗  List registered projects' \
       '󰈙  Initialise project in a directory' \
@@ -294,6 +294,7 @@ project_menu() {
       '󰆴  Save project snapshot' \
       '󰋚  List project versions' \
       '󰍎  Rehearse saved snapshot offline' \
+      '󰆈  Export offline recovery kit' \
       '󰜺  Back' | gum choose --height 12) || return
     case "$choice" in
       *List\ registered*) run lumen project list ;;
@@ -316,6 +317,12 @@ project_menu() {
         project=$(gum input --prompt 'Registered project name: ') || continue
         version=$(gum input --prompt 'Saved version (for example v000001): ') || continue
         [[ -n "$project" && -n "$version" ]] && run lumen project doctor "$project" --version "$version"
+        ;;
+      *Export*)
+        project=$(gum input --prompt 'Registered project name: ') || continue
+        version=$(gum input --prompt 'Saved version (for example v000001): ') || continue
+        destination=$(gum input --prompt 'New absolute kit directory (must be empty): ') || continue
+        [[ -n "$project" && -n "$version" && -n "$destination" ]] && run lumen project export "$project" --version "$version" --to "$destination"
         ;;
       *Back*) return ;;
     esac

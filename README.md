@@ -276,6 +276,7 @@ lumen default set browser firefox.desktop
 lumen shell jq                       # temporary CLI environment; exit removes it
 lumen project init . --name demo --description "Example project"
 lumen project doctor demo --version v000001 # rehearse one saved package closure offline
+lumen project export demo --version v000001 --to /media/usb/demo-v000001 # create an offline recovery kit
 lumen snapshot all create --name before-upgrade
 ```
 

@@ -98,5 +98,7 @@ grep -q 'Preview archive cleanup' "$source_file" || fail 'archive cleanup previe
 grep -q 'lumen repo prune --preview' "$source_file" || fail 'archive cleanup preview does not use the repository CLI'
 grep -q 'Rehearse saved snapshot offline' "$source_file" || fail 'offline snapshot rehearsal is not reachable'
 grep -q 'lumen project doctor "$project" --version "$version"' "$source_file" || fail 'offline snapshot rehearsal does not use the project doctor CLI'
+grep -q 'Export offline recovery kit' "$source_file" || fail 'offline recovery kit export is not reachable'
+grep -q 'lumen project export "$project" --version "$version" --to "$destination"' "$source_file" || fail 'offline recovery kit export does not use the project CLI'
 
 printf 'Control Center regression tests passed.\n'
