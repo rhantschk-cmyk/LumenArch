@@ -295,6 +295,7 @@ project_menu() {
       '󰋚  List project versions' \
       '󰍎  Rehearse saved snapshot offline' \
       '󰆈  Export offline recovery kit' \
+      '󰍎  Verify offline recovery kit' \
       '󰜺  Back' | gum choose --height 12) || return
     case "$choice" in
       *List\ registered*) run lumen project list ;;
@@ -323,6 +324,10 @@ project_menu() {
         version=$(gum input --prompt 'Saved version (for example v000001): ') || continue
         destination=$(gum input --prompt 'New absolute kit directory (must be empty): ') || continue
         [[ -n "$project" && -n "$version" && -n "$destination" ]] && run lumen project export "$project" --version "$version" --to "$destination"
+        ;;
+      *Verify*)
+        destination=$(gum input --prompt 'Mounted absolute recovery-kit directory: ') || continue
+        [[ -n "$destination" ]] && run lumen project verify-kit "$destination"
         ;;
       *Back*) return ;;
     esac

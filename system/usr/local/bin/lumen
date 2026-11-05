@@ -44,7 +44,7 @@ Everyday commands:
   theme <command>                apply or create one local cross-app palette
   shell <package> [--dir path]   enter a temporary CLI environment; optionally mount a work directory
   shell --dir path --config FILE enter the environment declared by project.lumen
-  project <command>              manage reproducible projects; doctor rehearse/export preserve offline recovery
+  project <command>              manage reproducible projects; doctor/export/verify-kit preserve offline recovery
   snapshot <target> <action>     manage local system and directory snapshots
   omarchy <command>              manage compatible Omarchy bar widgets in Lumen
   appearance <dark|light>        set GTK and portal colour preference
@@ -252,6 +252,9 @@ case "${1:-help}" in
     ;;
   project)
     shift
+    if [[ "${1:-}" == verify-kit ]]; then
+      exec /usr/lib/lumen/lumen-project "$@"
+    fi
     exec sudo /usr/lib/lumen/lumen-project "$@"
     ;;
   snapshot)

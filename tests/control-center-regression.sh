@@ -100,5 +100,8 @@ grep -q 'Rehearse saved snapshot offline' "$source_file" || fail 'offline snapsh
 grep -q 'lumen project doctor "$project" --version "$version"' "$source_file" || fail 'offline snapshot rehearsal does not use the project doctor CLI'
 grep -q 'Export offline recovery kit' "$source_file" || fail 'offline recovery kit export is not reachable'
 grep -q 'lumen project export "$project" --version "$version" --to "$destination"' "$source_file" || fail 'offline recovery kit export does not use the project CLI'
+grep -q 'Verify offline recovery kit' "$source_file" || fail 'offline recovery kit verification is not reachable'
+grep -q 'lumen project verify-kit "$destination"' "$source_file" || fail 'offline recovery kit verification does not use the project CLI'
+grep -q '"${1:-}" == verify-kit' "$root_dir/system/usr/local/bin/lumen" || fail 'offline recovery kit verification incorrectly requires sudo'
 
 printf 'Control Center regression tests passed.\n'

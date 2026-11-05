@@ -231,22 +231,25 @@ def load_version_lock(ident, version):
     return packages
 
 
-def saved_snapshot_manifest(ident, version):
-    path = ROOT / ident / "manifests" / f"{version}.lumen"
+def saved_snapshot_manifest_from_path(path, label):
     if not path.is_file() or path.is_symlink():
-        die(f"saved manifest not found for snapshot: {version}")
+        die(f"saved manifest not found for {label}")
     try:
         raw = tomllib.loads(path.read_text(encoding="utf-8"))
         environment = raw["Environment"]
         packages = environment["Packages"]
         mode = environment.get("Mode", "shell")
     except (OSError, tomllib.TOMLDecodeError, KeyError, TypeError) as exc:
-        die(f"invalid saved manifest for snapshot {version}: {exc}")
+        die(f"invalid saved manifest for {label}: {exc}")
     if not isinstance(packages, list) or not packages or not all(isinstance(item, str) and PACKAGE.fullmatch(item) for item in packages):
-        die(f"invalid saved manifest for snapshot {version}: Environment.Packages must be a non-empty list of official package names")
+        die(f"invalid saved manifest for {label}: Environment.Packages must be a non-empty list of official package names")
     if mode != "shell":
-        die(f"saved snapshot {version} cannot be rehearsed because Environment.Mode is not shell")
+        die(f"saved manifest for {label} requires Environment.Mode = shell")
     return list(dict.fromkeys(packages))
+
+
+def saved_snapshot_manifest(ident, version):
+    return saved_snapshot_manifest_from_path(ROOT / ident / "manifests" / f"{version}.lumen", f"snapshot {version}")
 
 
 def locked_repository(packages):
@@ -411,6 +414,176 @@ def export_snapshot(ident, record, version, destination_value):
     total = sum(path.stat().st_size for path in destination.rglob("*") if path.is_file())
     print(f"Offline recovery kit exported: {destination}")
     print(f"Archives: {len(archives)}; bytes: {total}; checksums: {destination / 'SHA256SUMS'}")
+
+
+def safe_kit_directory(value):
+    directory = Path(value)
+    if not directory.is_absolute() or ".." in directory.parts:
+        die("recovery kit path must be an absolute local directory without ..", 2)
+    current = Path(directory.anchor)
+    for part in directory.parts[1:]:
+        current /= part
+        if current.is_symlink():
+            die("recovery kit path may not pass through a symlink")
+    if not directory.is_dir():
+        die(f"recovery kit is not a directory: {directory}")
+    return directory
+
+
+def regular_kit_file(directory, relative):
+    path = directory / relative
+    if not path.is_file() or path.is_symlink():
+        die(f"recovery kit payload is missing or unsafe: {relative}")
+    return path
+
+
+def checked_kit_relative(value):
+    path = Path(value)
+    if (not isinstance(value, str) or not value or path.is_absolute() or ".." in path.parts
+            or path.as_posix() in (".", "") or any(part in ("", ".") for part in path.parts)):
+        die("recovery kit checksum manifest contains an unsafe path")
+    return path.as_posix()
+
+
+def kit_checksum_entries(path):
+    entries = {}
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        die(f"cannot read recovery kit checksum manifest: {exc}")
+    if not lines:
+        die("recovery kit checksum manifest is empty")
+    for line in lines:
+        if not re.fullmatch(r"[0-9a-f]{64}  .+", line):
+            die("recovery kit checksum manifest contains an invalid record")
+        checksum, value = line.split("  ", 1)
+        relative = checked_kit_relative(value)
+        if relative in entries:
+            die(f"recovery kit checksum manifest contains a duplicate path: {relative}")
+        entries[relative] = checksum
+    return entries
+
+
+def load_kit_lock(path):
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        packages = data.get("packages")
+    except (OSError, json.JSONDecodeError) as exc:
+        die(f"invalid recovery kit package lock: {exc}")
+    if not isinstance(packages, list) or not packages:
+        die("recovery kit package lock is empty")
+    seen = set()
+    result = []
+    for package in packages:
+        name = package.get("name") if isinstance(package, dict) else None
+        version = package.get("version") if isinstance(package, dict) else None
+        archive = package.get("archive") if isinstance(package, dict) else None
+        checksum = package.get("sha256") if isinstance(package, dict) else None
+        if (not isinstance(name, str) or not PACKAGE.fullmatch(name) or not isinstance(version, str) or not version
+                or not isinstance(archive, str)
+                or not re.fullmatch(r"[A-Za-z0-9@._+:-]+\.pkg\.tar(?:\.[A-Za-z0-9]+)+", archive)
+                or not isinstance(checksum, str) or not re.fullmatch(r"[0-9a-f]{64}", checksum)):
+            die("recovery kit package lock contains an invalid archive")
+        if archive in seen:
+            die(f"recovery kit package lock contains a duplicate archive: {archive}")
+        seen.add(archive)
+        result.append({"name": name, "version": version, "archive": archive, "sha256": checksum})
+    return sorted(result, key=lambda item: item["archive"])
+
+
+def package_metadata(path):
+    result = run(["pacman", "-Qp", str(path)], check=False, capture_output=True)
+    pieces = result.stdout.split()
+    if result.returncode or len(pieces) < 2:
+        die(f"recovery kit archive metadata is unreadable: {path.name}")
+    return pieces[0], pieces[1]
+
+
+def verify_kit_database(directory, packages):
+    if not shutil.which("pacman"):
+        die("recovery kit database cannot be checked: Pacman tooling is unavailable")
+    with tempfile.TemporaryDirectory(prefix="lumen-kit-verify.") as temporary:
+        temporary = Path(temporary)
+        config = temporary / "pacman.conf"
+        database = temporary / "db"
+        cache = temporary / "cache"
+        config.write_text(
+            "[options]\nArchitecture = auto\nSigLevel = Never\n"
+            f"DBPath = {database}\nCacheDir = {cache}\n\n"
+            "[lumen-local]\nSigLevel = Optional TrustAll\n"
+            f"Server = file://{directory / 'packages'}\n",
+            encoding="utf-8",
+        )
+        refresh = run(["pacman", "--config", str(config), "--dbpath", str(database), "-Sy"],
+                      check=False, capture_output=True)
+        if refresh.returncode:
+            die("recovery kit database cannot be refreshed from the local kit")
+        for package in packages:
+            result = run(["pacman", "--config", str(config), "--dbpath", str(database), "-Si", package["name"]],
+                         check=False, capture_output=True)
+            if result.returncode:
+                die(f"recovery kit database does not provide locked package: {package['name']}")
+            fields = {}
+            for line in result.stdout.splitlines():
+                if " : " in line:
+                    key, value = line.split(" : ", 1)
+                    fields[key.strip().lower()] = value.strip()
+            if fields.get("name") != package["name"] or fields.get("version") != package["version"]:
+                die(f"recovery kit database has a stale entry for: {package['archive']}")
+
+
+def verify_recovery_kit(value):
+    directory = safe_kit_directory(value)
+    expected_fixed = {
+        "RECOVERY.md", "SHA256SUMS", "metadata/snapshot.tar.zst", "metadata/project.lumen",
+        "metadata/package-lock.json", "packages/lumen-local.db.tar.gz", "packages/lumen-local.db",
+    }
+    snapshot = regular_kit_file(directory, "metadata/snapshot.tar.zst")
+    manifest = regular_kit_file(directory, "metadata/project.lumen")
+    lock = regular_kit_file(directory, "metadata/package-lock.json")
+    checksum_file = regular_kit_file(directory, "SHA256SUMS")
+    for relative in ("RECOVERY.md", "packages/lumen-local.db.tar.gz", "packages/lumen-local.db"):
+        regular_kit_file(directory, relative)
+    packages = load_kit_lock(lock)
+    expected = expected_fixed | {f"packages/{package['archive']}" for package in packages}
+    actual = set()
+    expected_directories = {"metadata", "packages"}
+    actual_directories = set()
+    for path in directory.rglob("*"):
+        relative = path.relative_to(directory).as_posix()
+        if path.is_symlink():
+            die(f"recovery kit contains a symlink: {relative}")
+        if path.is_dir():
+            actual_directories.add(relative)
+        elif path.is_file():
+            actual.add(relative)
+        else:
+            die(f"recovery kit contains an unsafe entry: {relative}")
+    if actual != expected or actual_directories != expected_directories:
+        missing = sorted(expected - actual) or sorted(expected_directories - actual_directories)
+        extra = sorted(actual - expected) or sorted(actual_directories - expected_directories)
+        detail = f"missing {missing[0]}" if missing else f"unexpected {extra[0]}"
+        die(f"recovery kit layout is incomplete or altered: {detail}")
+    entries = kit_checksum_entries(checksum_file)
+    if set(entries) != expected - {"SHA256SUMS"}:
+        die("recovery kit checksum manifest does not cover exactly its payload")
+    for relative, checksum in entries.items():
+        payload = regular_kit_file(directory, relative)
+        if sha256_file(payload) != checksum:
+            die(f"recovery kit checksum changed: {relative}")
+    validate_snapshot_archive(snapshot, "recovery kit snapshot")
+    saved_snapshot_manifest_from_path(manifest, "recovery kit")
+    for package in packages:
+        archive = regular_kit_file(directory, f"packages/{package['archive']}")
+        if sha256_file(archive) != package["sha256"]:
+            die(f"recovery kit locked archive checksum changed: {package['archive']}")
+        name, version = package_metadata(archive)
+        if (name, version) != (package["name"], package["version"]):
+            die(f"recovery kit archive metadata does not match lock: {package['archive']}")
+    verify_kit_database(directory, packages)
+    total = sum(path.stat().st_size for path in directory.rglob("*") if path.is_file())
+    print(f"Offline recovery kit verified: {directory}")
+    print(f"Archives: {len(packages)}; bytes: {total}; checksums: {checksum_file}")
 
 
 def run_in_environment(cfg, command, packages=None):
@@ -625,6 +798,7 @@ Commands:
   prepare [project] | shell [project] | run [project] | compile [project]
   save [project] [--label TEXT] | versions [project]
   export [project] --version v000001 --to ABSOLUTE_DIRECTORY
+  verify-kit ABSOLUTE_DIRECTORY
   restore [project] --version VERSION --yes
   diff [project] VERSION_A VERSION_B | remove PROJECT --yes
 
@@ -643,6 +817,10 @@ def main(arguments):
         protected_archive_locks(); return
     if arguments and arguments[0] == "protected-packages":
         protected_packages(); return
+    if arguments and arguments[0] == "verify-kit":
+        if len(arguments) != 2:
+            die("usage: lumen project verify-kit ABSOLUTE_DIRECTORY", 2)
+        verify_recovery_kit(arguments[1]); return
     require_root()
     if arguments and arguments[0] == "shell-config":
         if len(arguments) != 2:
