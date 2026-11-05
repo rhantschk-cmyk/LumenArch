@@ -118,8 +118,8 @@ deselected in the installer when a smaller initial system is preferred.
 4. Confirm the destructive disk operation. After installation, remove the USB
    drive and reboot. SDDM starts the Lumen Hyprland session.
 
-5. Press ``SUPER + U`` for the Control-Center and update your System, for the case there is
-   an update availale
+5. Press `Super + U` to open the Control Center and update your system when an update is
+   available.
 
 The installer packages the system exclusively from the USB's local repository;
 target networking is not used. Internet can be configured after the first boot.
