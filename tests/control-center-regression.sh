@@ -103,5 +103,8 @@ grep -q 'lumen project export "$project" --version "$version" --to "$destination
 grep -q 'Verify offline recovery kit' "$source_file" || fail 'offline recovery kit verification is not reachable'
 grep -q 'lumen project verify-kit "$destination"' "$source_file" || fail 'offline recovery kit verification does not use the project CLI'
 grep -q '"${1:-}" == verify-kit' "$root_dir/system/usr/local/bin/lumen" || fail 'offline recovery kit verification incorrectly requires sudo'
+grep -q 'Rehearse recovery kit offline' "$source_file" || fail 'offline recovery kit rehearsal is not reachable'
+grep -q 'lumen project rehearse-kit "$destination"' "$source_file" || fail 'offline recovery kit rehearsal does not use the project CLI'
+! grep -q '"${1:-}" == rehearse-kit' "$root_dir/system/usr/local/bin/lumen" || fail 'offline recovery kit rehearsal must require sudo'
 
 printf 'Control Center regression tests passed.\n'

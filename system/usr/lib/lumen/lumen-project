@@ -572,7 +572,7 @@ def verify_recovery_kit(value):
         if sha256_file(payload) != checksum:
             die(f"recovery kit checksum changed: {relative}")
     validate_snapshot_archive(snapshot, "recovery kit snapshot")
-    saved_snapshot_manifest_from_path(manifest, "recovery kit")
+    manifest_packages = saved_snapshot_manifest_from_path(manifest, "recovery kit")
     for package in packages:
         archive = regular_kit_file(directory, f"packages/{package['archive']}")
         if sha256_file(archive) != package["sha256"]:
@@ -584,6 +584,21 @@ def verify_recovery_kit(value):
     total = sum(path.stat().st_size for path in directory.rglob("*") if path.is_file())
     print(f"Offline recovery kit verified: {directory}")
     print(f"Archives: {len(packages)}; bytes: {total}; checksums: {checksum_file}")
+    return directory, packages, manifest_packages
+
+
+def rehearse_recovery_kit(value):
+    directory, _, manifest_packages = verify_recovery_kit(value)
+    command = [SHELL]
+    for package in manifest_packages:
+        command += ["--package", package]
+    command += ["--repo-dir", str(directory / "packages"), "--offline-only", "--prepare"]
+    print(f"Offline recovery kit rehearsal: {directory}")
+    print("Checking the kit's saved package closure only; project commands and files are not run.")
+    result = run(command, check=False)
+    if result.returncode:
+        die("offline recovery kit package closure could not bootstrap; re-export the kit from the original verified local repository when available", result.returncode)
+    print(f"Offline recovery kit rehearsal: ready ({directory})")
 
 
 def run_in_environment(cfg, command, packages=None):
@@ -799,6 +814,7 @@ Commands:
   save [project] [--label TEXT] | versions [project]
   export [project] --version v000001 --to ABSOLUTE_DIRECTORY
   verify-kit ABSOLUTE_DIRECTORY
+  rehearse-kit ABSOLUTE_DIRECTORY
   restore [project] --version VERSION --yes
   diff [project] VERSION_A VERSION_B | remove PROJECT --yes
 
@@ -822,6 +838,10 @@ def main(arguments):
             die("usage: lumen project verify-kit ABSOLUTE_DIRECTORY", 2)
         verify_recovery_kit(arguments[1]); return
     require_root()
+    if arguments and arguments[0] == "rehearse-kit":
+        if len(arguments) != 2:
+            die("usage: lumen project rehearse-kit ABSOLUTE_DIRECTORY", 2)
+        rehearse_recovery_kit(arguments[1]); return
     if arguments and arguments[0] == "shell-config":
         if len(arguments) != 2:
             die("usage: lumen shell --dir DIRECTORY --config DIRECTORY/project.lumen", 2)

@@ -278,6 +278,7 @@ lumen project init . --name demo --description "Example project"
 lumen project doctor demo --version v000001 # rehearse one saved package closure offline
 lumen project export demo --version v000001 --to /media/usb/demo-v000001 # create an offline recovery kit
 lumen project verify-kit /media/usb/demo-v000001 # verify a copied recovery kit offline
+lumen project rehearse-kit /media/usb/demo-v000001 # bootstrap-test a verified kit offline
 lumen snapshot all create --name before-upgrade
 ```
 
