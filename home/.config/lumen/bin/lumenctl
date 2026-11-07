@@ -297,7 +297,8 @@ project_menu() {
       '󰆈  Export offline recovery kit' \
       '󰍎  Verify offline recovery kit' \
       '󰍎  Rehearse recovery kit offline' \
-      '󰜺  Back' | gum choose --height 12) || return
+      '󰀼  Restore recovery-kit snapshot' \
+      '󰜺  Back' | gum choose --height 13) || return
     case "$choice" in
       *List\ registered*) run lumen project list ;;
       *Initialise*)
@@ -333,6 +334,11 @@ project_menu() {
       *Rehearse\ recovery\ kit*)
         destination=$(gum input --prompt 'Mounted absolute recovery-kit directory (requires sudo and temporary /run space): ') || continue
         [[ -n "$destination" ]] && run lumen project rehearse-kit "$destination"
+        ;;
+      *Restore\ recovery-kit*)
+        directory=$(gum input --prompt 'Mounted absolute recovery-kit directory (will remain unchanged): ') || continue
+        destination=$(gum input --prompt 'Absolute empty destination directory (will be written): ') || continue
+        [[ -n "$directory" && -n "$destination" ]] && run lumen project restore-kit "$directory" --to "$destination" --yes
         ;;
       *Back*) return ;;
     esac

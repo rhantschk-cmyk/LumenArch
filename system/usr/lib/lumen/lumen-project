@@ -601,6 +601,79 @@ def rehearse_recovery_kit(value):
     print(f"Offline recovery kit rehearsal: ready ({directory})")
 
 
+def safe_restore_destination(value):
+    destination = Path(value)
+    if not destination.is_absolute() or ".." in destination.parts:
+        die("restore destination must be an absolute local directory without ..", 2)
+    current = Path(destination.anchor)
+    for part in destination.parts[1:-1]:
+        current /= part
+        if current.is_symlink():
+            die("restore destination may not pass through a symlink")
+    parent = destination.parent
+    if not parent.is_dir() or parent.is_symlink():
+        die(f"restore destination parent is not a real directory: {parent}")
+    exists = os.path.lexists(destination)
+    if exists:
+        if destination.is_symlink():
+            die("restore destination may not be a symlink")
+        if not destination.is_dir():
+            die(f"restore destination is not a directory: {destination}")
+        if any(destination.iterdir()):
+            die(f"restore destination already exists and is not empty: {destination}")
+    return destination, exists
+
+
+def safe_snapshot_entries(snapshot):
+    listing = run(["tar", "--zstd", "-tf", str(snapshot)], check=False,
+                  capture_output=True)
+    if listing.returncode:
+        die("recovery kit snapshot cannot be listed safely")
+    entries = listing.stdout.splitlines()
+    if not entries:
+        die("recovery kit snapshot is empty")
+    for entry in entries:
+        path = Path(entry.rstrip("/"))
+        if (not entry or entry.startswith("/") or path.is_absolute() or ".." in path.parts
+                or any(part in ("", ".") for part in path.parts)):
+            die(f"recovery kit snapshot contains an unsafe path: {entry!r}")
+    details = run(["tar", "--zstd", "-tvf", str(snapshot)], check=False,
+                  capture_output=True)
+    if details.returncode:
+        die("recovery kit snapshot types cannot be inspected safely")
+    types = [line[:1] for line in details.stdout.splitlines() if line]
+    if len(types) != len(entries) or any(item not in ("-", "d") for item in types):
+        die("recovery kit snapshot contains unsafe link or special entries")
+
+
+def restore_recovery_kit(value, destination_value, yes):
+    if not yes:
+        die("restoring a recovery kit writes a destination; repeat with --yes", 2)
+    directory, _, _ = verify_recovery_kit(value)
+    snapshot = regular_kit_file(directory, "metadata/snapshot.tar.zst")
+    safe_snapshot_entries(snapshot)
+    destination, exists = safe_restore_destination(destination_value)
+    required = snapshot.stat().st_size + 64 * 1024 * 1024
+    if shutil.disk_usage(destination.parent).free < required:
+        die(f"insufficient free space to restore recovery kit at {destination.parent}")
+    temporary = Path(tempfile.mkdtemp(prefix=".lumen-kit-restore.", dir=destination.parent))
+    try:
+        extracted = run(["tar", "--zstd", "--no-same-owner", "--no-same-permissions", "-xf", str(snapshot), "-C", str(temporary)],
+                        check=False)
+        if extracted.returncode:
+            die("recovery kit snapshot extraction failed", extracted.returncode)
+        if exists:
+            # Preserve an existing empty destination on failure; only remove it
+            # immediately before the atomic publish, where rmdir also detects races.
+            destination.rmdir()
+        os.replace(temporary, destination)
+    except BaseException:
+        shutil.rmtree(temporary, ignore_errors=True)
+        raise
+    print(f"Offline recovery kit restored: {destination}")
+    print(f"Kit remains unchanged: {directory}")
+
+
 def run_in_environment(cfg, command, packages=None):
     if not command:
         die("the requested command is empty in project.lumen")
@@ -815,6 +888,7 @@ Commands:
   export [project] --version v000001 --to ABSOLUTE_DIRECTORY
   verify-kit ABSOLUTE_DIRECTORY
   rehearse-kit ABSOLUTE_DIRECTORY
+  restore-kit ABSOLUTE_DIRECTORY --to ABSOLUTE_EMPTY_DIRECTORY --yes
   restore [project] --version VERSION --yes
   diff [project] VERSION_A VERSION_B | remove PROJECT --yes
 
@@ -837,6 +911,10 @@ def main(arguments):
         if len(arguments) != 2:
             die("usage: lumen project verify-kit ABSOLUTE_DIRECTORY", 2)
         verify_recovery_kit(arguments[1]); return
+    if arguments and arguments[0] == "restore-kit":
+        if len(arguments) != 5 or arguments[2] != "--to" or arguments[4] != "--yes":
+            die("usage: lumen project restore-kit ABSOLUTE_DIRECTORY --to ABSOLUTE_EMPTY_DIRECTORY --yes", 2)
+        restore_recovery_kit(arguments[1], arguments[3], True); return
     require_root()
     if arguments and arguments[0] == "rehearse-kit":
         if len(arguments) != 2:

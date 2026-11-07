@@ -106,5 +106,8 @@ grep -q '"${1:-}" == verify-kit' "$root_dir/system/usr/local/bin/lumen" || fail 
 grep -q 'Rehearse recovery kit offline' "$source_file" || fail 'offline recovery kit rehearsal is not reachable'
 grep -q 'lumen project rehearse-kit "$destination"' "$source_file" || fail 'offline recovery kit rehearsal does not use the project CLI'
 ! grep -q '"${1:-}" == rehearse-kit' "$root_dir/system/usr/local/bin/lumen" || fail 'offline recovery kit rehearsal must require sudo'
+grep -q 'Restore recovery-kit snapshot' "$source_file" || fail 'offline recovery kit restore is not reachable'
+grep -q 'lumen project restore-kit "$directory" --to "$destination" --yes' "$source_file" || fail 'offline recovery kit restore does not use the project CLI'
+grep -q '"${1:-}" == verify-kit || "${1:-}" == restore-kit' "$root_dir/system/usr/local/bin/lumen" || fail 'offline recovery kit restore incorrectly requires sudo'
 
 printf 'Control Center regression tests passed.\n'
