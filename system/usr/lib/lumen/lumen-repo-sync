@@ -32,6 +32,7 @@ Commands:
   unhold <package>         remove Lumen's update hold for a package
   status                   show repository, exclusion, and hold information
   verify                   audit local archive, database, source, and project-lock readiness
+  import-kit --preview DIR compare a verified recovery kit with this local archive
   list                     list archives currently offered by the repository
   exclusions               list packages excluded from the local repository
   prune [--preview]        retain two cached versions of packages in the repo
@@ -342,6 +343,85 @@ preview_prune() {
   fi
 }
 
+preview_import_kit() {
+  local kit="$1" name archive checksum local_archive local_checksum total=0 failures=0
+  local -a present=() candidates=() blockers=()
+  [[ -x "$project_helper" ]] || {
+    echo 'Recovery-kit import preview: Lumen project helper is unavailable locally.' >&2
+    return 1
+  }
+  # Verify the removable artifact completely before comparing even one archive.
+  "$project_helper" verify-kit "$kit" || return $?
+  [[ -d "$REPO_DIR" && ! -L "$REPO_DIR" ]] || {
+    echo "Recovery-kit import preview: local repository is not a real directory: $REPO_DIR" >&2
+    return 1
+  }
+  command -v python3 >/dev/null || {
+    echo 'Recovery-kit import preview: Python 3 is unavailable for safe lock parsing.' >&2
+    return 1
+  }
+
+  while IFS=$'\t' read -r name archive checksum; do
+    [[ -n "$name" && -n "$archive" && -n "$checksum" ]] || continue
+    if list_contains "$name" "$exclude_file"; then
+      blockers+=("packages/$archive (excluded by current local repository policy)")
+      continue
+    fi
+    local_archive="$REPO_DIR/$archive"
+    if [[ -e "$local_archive" || -L "$local_archive" ]]; then
+      if [[ ! -f "$local_archive" || -L "$local_archive" ]]; then
+        blockers+=("packages/$archive (local archive is unsafe or unreadable)")
+        continue
+      fi
+      if ! local_checksum=$(sha256sum -- "$local_archive" 2>/dev/null); then
+        blockers+=("packages/$archive (cannot hash local archive)")
+        continue
+      fi
+      local_checksum=${local_checksum%% *}
+      if [[ "$local_checksum" == "$checksum" ]]; then
+        present+=("packages/$archive")
+      else
+        blockers+=("packages/$archive (same name has a different SHA-256 locally)")
+      fi
+    else
+      candidates+=("$archive")
+      total=$((total + $(stat -c '%s' -- "$kit/packages/$archive")))
+    fi
+  done < <(python3 - "$kit/metadata/package-lock.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    packages = json.load(handle)["packages"]
+for package in sorted(packages, key=lambda item: item["archive"]):
+    print(f'{package["name"]}\t{package["archive"]}\t{package["sha256"]}')
+PY
+)
+
+  echo 'Recovery-kit archive import preview (read-only; no archives or databases are changed).'
+  if ((${#present[@]})); then
+    echo 'Already present (byte-identical):'
+    printf '%s\n' "${present[@]}" | LC_ALL=C sort | sed 's#^#- #'
+  else
+    echo 'Already present (byte-identical): none'
+  fi
+  if ((${#candidates[@]})); then
+    echo 'Would import:'
+    printf '%s\n' "${candidates[@]}" | LC_ALL=C sort | sed 's#^#- packages/#'
+  else
+    echo 'Would import: none'
+  fi
+  printf 'Import bytes: %s\n' "$total"
+  if ((${#blockers[@]})); then
+    echo 'Blocked:' >&2
+    printf '%s\n' "${blockers[@]}" | LC_ALL=C sort | sed 's#^#- #' >&2
+    failures=1
+  else
+    echo 'Blocked: none'
+  fi
+  return "$failures"
+}
+
 case "${1:-}" in
   --from-cache|sync) sync_repository ;;
   add) [[ $# -eq 2 ]] || { usage >&2; exit 2; }; add_archive_or_package "$2" ;;
@@ -378,6 +458,10 @@ case "${1:-}" in
       paccache -rk2 -c "$REPO_DIR"
     fi
     sync_repository
+    ;;
+  import-kit)
+    [[ $# -eq 3 && "$2" == --preview ]] || { usage >&2; exit 2; }
+    preview_import_kit "$3"
     ;;
   status) status ;;
   verify) verify_repository ;;

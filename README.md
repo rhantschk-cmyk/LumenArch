@@ -340,6 +340,7 @@ lumen repo add /path/to/package.pkg.tar.zst
 lumen repo exclude linux-firmware    # do not retain this archive locally
 lumen repo unexclude linux-firmware
 lumen repo prune                     # retain two local versions per package
+lumen repo import-kit --preview /media/usb/demo-v000001 # compare a verified kit before any future local import
 lumen package hold linux             # exclude from normal Pacman updates
 lumen package unhold linux
 ```

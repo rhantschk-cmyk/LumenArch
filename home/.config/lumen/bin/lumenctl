@@ -228,7 +228,7 @@ appearance_menu() {
 repository_menu() {
   while true; do
     title
-    local choice package
+    local choice package destination
     choice=$(printf '%s\n' \
       '󰏗  Repository status' \
       '󰍎  Verify local archive readiness' \
@@ -239,9 +239,10 @@ repository_menu() {
       '󰏖  List locally available packages' \
       '󰋺  Show local exclusions' \
       '󰍎  Preview archive cleanup' \
+      '󰍎  Preview recovery-kit archive import' \
       '󰆴  Prune old archive versions' \
       '󰅖  Show package holds' \
-      '󰜺  Back' | gum choose --height 13) || return
+      '󰜺  Back' | gum choose --height 14) || return
     case "$choice" in
       *status*) run lumen repo status ;;
       *Verify*) run lumen repo verify ;;
@@ -251,6 +252,10 @@ repository_menu() {
       *Re-include*) package=$(gum input --prompt 'Package to include again: ') || continue; [[ -n "$package" ]] && run lumen repo unexclude "$package" ;;
       *List*) run lumen repo list ;;
       *exclusions*) run lumen repo exclusions ;;
+      *recovery-kit*)
+        destination=$(gum input --prompt 'Mounted absolute recovery-kit directory (read-only preview): ') || continue
+        [[ -n "$destination" ]] && run lumen repo import-kit --preview "$destination"
+        ;;
       *Preview*) run lumen repo prune --preview ;;
       *Prune*) gum confirm 'Retain only two versions per package?' && run lumen repo prune ;;
       *holds*) run lumen package list-holds ;;
