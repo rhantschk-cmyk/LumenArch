@@ -51,6 +51,12 @@ if MOCK_KIT="$kit" LUMEN_REPO_CONFIG_FILE="$config" LUMEN_REPO_EXCLUDE_FILE="$ex
 fi
 grep -Fq 'same name has a different SHA-256 locally' "$work_dir/conflict.log" || fail 'checksum conflict was not reported'
 rm "$repo_dir/beta-1.0-1-x86_64.pkg.tar.zst"
+ln -s /missing-local-archive "$repo_dir/beta-1.0-1-x86_64.pkg.tar.zst"
+if MOCK_KIT="$kit" LUMEN_REPO_CONFIG_FILE="$config" LUMEN_REPO_EXCLUDE_FILE="$exclude" LUMEN_PROJECT_HELPER="$project_helper" "$helper" import-kit --preview "$kit" >"$work_dir/symlink.log" 2>&1; then
+  fail 'symlinked local archive was accepted'
+fi
+grep -Fq 'local archive is unsafe or unreadable' "$work_dir/symlink.log" || fail 'unsafe local archive was not reported'
+rm "$repo_dir/beta-1.0-1-x86_64.pkg.tar.zst"
 printf 'beta\n' > "$exclude"
 if MOCK_KIT="$kit" LUMEN_REPO_CONFIG_FILE="$config" LUMEN_REPO_EXCLUDE_FILE="$exclude" LUMEN_PROJECT_HELPER="$project_helper" "$helper" import-kit --preview "$kit" >"$work_dir/excluded.log" 2>&1; then
   fail 'excluded kit package was accepted'
