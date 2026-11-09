@@ -72,6 +72,7 @@ Offline repository commands:
   repo unexclude <package>       include it in later repository syncs
   repo prune [--preview]         preview or retain two archive versions per package
   repo import-kit --preview DIR  compare a verified recovery kit with the local archive
+  repo import-kit DIR --yes      import verified missing kit archives into the local archive
 
 Run 'lumen help' to display this text. Administrative commands ask sudo only
 for the operation that requires it.
@@ -271,7 +272,16 @@ case "${1:-help}" in
     case "${1:-}" in
       status|list|exclusions|verify|-h|--help|help) exec "$repo_helper" "$@" ;;
       prune) [[ "${2:-}" == --preview && $# -eq 2 ]] && exec "$repo_helper" "$@" || exec sudo "$repo_helper" "$@" ;;
-      import-kit) [[ "${2:-}" == --preview && $# -eq 3 ]] && exec "$repo_helper" "$@" || { help >&2; exit 2; } ;;
+      import-kit)
+        if [[ "${2:-}" == --preview && $# -eq 3 ]]; then
+          exec "$repo_helper" "$@"
+        elif [[ $# -eq 3 && "${3:-}" == --yes ]]; then
+          exec sudo "$repo_helper" "$@"
+        else
+          help >&2
+          exit 2
+        fi
+        ;;
       *) exec sudo "$repo_helper" "$@" ;;
     esac
     ;;

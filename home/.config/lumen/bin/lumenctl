@@ -240,9 +240,10 @@ repository_menu() {
       '󰋺  Show local exclusions' \
       '󰍎  Preview archive cleanup' \
       '󰍎  Preview recovery-kit archive import' \
+      '󰆼  Import recovery-kit archives' \
       '󰆴  Prune old archive versions' \
       '󰅖  Show package holds' \
-      '󰜺  Back' | gum choose --height 14) || return
+      '󰜺  Back' | gum choose --height 15) || return
     case "$choice" in
       *status*) run lumen repo status ;;
       *Verify*) run lumen repo verify ;;
@@ -252,9 +253,15 @@ repository_menu() {
       *Re-include*) package=$(gum input --prompt 'Package to include again: ') || continue; [[ -n "$package" ]] && run lumen repo unexclude "$package" ;;
       *List*) run lumen repo list ;;
       *exclusions*) run lumen repo exclusions ;;
-      *recovery-kit*)
+      *Preview\ recovery-kit*)
         destination=$(gum input --prompt 'Mounted absolute recovery-kit directory (read-only preview): ') || continue
         [[ -n "$destination" ]] && run lumen repo import-kit --preview "$destination"
+        ;;
+      *Import\ recovery-kit*)
+        destination=$(gum input --prompt 'Mounted absolute recovery-kit directory (verified archives only): ') || continue
+        if [[ -n "$destination" ]] && lumen repo import-kit --preview "$destination"; then
+          gum confirm 'Import only missing verified archives and rebuild the local offline repository? Installed packages and the kit remain unchanged.' && run lumen repo import-kit "$destination" --yes
+        fi
         ;;
       *Preview*) run lumen repo prune --preview ;;
       *Prune*) gum confirm 'Retain only two versions per package?' && run lumen repo prune ;;

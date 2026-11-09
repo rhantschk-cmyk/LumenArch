@@ -6,6 +6,7 @@ config_file=${LUMEN_REPO_CONFIG_FILE:-/etc/lumen/repo.conf}
 exclude_file=${LUMEN_REPO_EXCLUDE_FILE:-/etc/lumen/repo-exclude}
 holds_file=${LUMEN_REPO_HOLDS_FILE:-/etc/lumen/holds}
 pacman_fragment=${LUMEN_PACMAN_FRAGMENT:-/etc/pacman.conf.d/lumen-local.conf}
+pacman_config=${LUMEN_PACMAN_CONFIG:-/etc/pacman.conf}
 holds_fragment=${LUMEN_HOLDS_FRAGMENT:-/etc/pacman.conf.d/lumen-holds.conf}
 project_helper=${LUMEN_PROJECT_HELPER:-/usr/lib/lumen/lumen-project}
 
@@ -33,6 +34,7 @@ Commands:
   status                   show repository, exclusion, and hold information
   verify                   audit local archive, database, source, and project-lock readiness
   import-kit --preview DIR compare a verified recovery kit with this local archive
+  import-kit DIR --yes     import a verified kit's missing archives locally
   list                     list archives currently offered by the repository
   exclusions               list packages excluded from the local repository
   prune [--preview]        retain two cached versions of packages in the repo
@@ -104,12 +106,12 @@ disable_pacman_source() {
 }
 
 ensure_pacman_source_is_included() {
-  local include_line='Include = /etc/pacman.conf.d/lumen-local.conf'
-  grep -Fqx "$include_line" /etc/pacman.conf && return
-  if grep -q '^LocalFileSigLevel = ' /etc/pacman.conf; then
-    sed -i "/^LocalFileSigLevel = /a $include_line" /etc/pacman.conf
-  elif grep -q '^\[options\]$' /etc/pacman.conf; then
-    sed -i "/^\[options\]$/a $include_line" /etc/pacman.conf
+  local include_line="Include = $pacman_fragment"
+  grep -Fqx "$include_line" "$pacman_config" && return
+  if grep -q '^LocalFileSigLevel = ' "$pacman_config"; then
+    sed -i "/^LocalFileSigLevel = /a $include_line" "$pacman_config"
+  elif grep -q '^\[options\]$' "$pacman_config"; then
+    sed -i "/^\[options\]$/a $include_line" "$pacman_config"
   else
     echo 'Could not enable the Lumen local Pacman source: no [options] section.' >&2
     exit 1
@@ -422,6 +424,116 @@ PY
   return "$failures"
 }
 
+target_repository_ready_for_import() {
+  local archive count=0
+  [[ -d "$REPO_DIR" && ! -L "$REPO_DIR" ]] || {
+    echo "Recovery-kit import: local repository is not a real directory: $REPO_DIR" >&2
+    return 1
+  }
+  shopt -s nullglob
+  for archive in "$REPO_DIR"/*.pkg.tar.*; do
+    [[ "$archive" == *.sig ]] && continue
+    [[ -f "$archive" && ! -L "$archive" ]] || {
+      echo "Recovery-kit import: local archive is unsafe or unreadable: $archive" >&2
+      return 1
+    }
+    count=$((count + 1))
+  done
+  ((count == 0)) && return 0
+  verify_repository
+}
+
+import_recovery_kit() {
+  local kit="$1" name archive checksum local_archive local_checksum staged_archive
+  local stage prospective_db source_stage sync_database imported=0 present=0 total=0
+  local -a candidates=() union_archives=()
+  require_root
+  [[ -x "$project_helper" ]] || { echo 'Recovery-kit import: Lumen project helper is unavailable locally.' >&2; return 1; }
+  "$project_helper" verify-kit "$kit" || return $?
+  target_repository_ready_for_import || return $?
+  command -v python3 >/dev/null || { echo 'Recovery-kit import: Python 3 is unavailable for safe lock parsing.' >&2; return 1; }
+  command -v repo-add >/dev/null || { echo 'Recovery-kit import: repo-add is unavailable; install pacman-contrib locally.' >&2; return 1; }
+  command -v pacman >/dev/null || { echo 'Recovery-kit import: Pacman metadata reader is unavailable locally.' >&2; return 1; }
+  grep -Fqx "Include = $pacman_fragment" "$pacman_config" || grep -q '^LocalFileSigLevel = ' "$pacman_config" || grep -q '^\[options\]$' "$pacman_config" || {
+    echo "Recovery-kit import: $pacman_config cannot include the Lumen local source." >&2
+    return 1
+  }
+
+  shopt -s nullglob
+  for local_archive in "$REPO_DIR"/*.pkg.tar.*; do
+    [[ "$local_archive" == *.sig ]] || union_archives+=("$local_archive")
+  done
+  while IFS=$'\t' read -r name archive checksum; do
+    [[ -n "$name" && -n "$archive" && -n "$checksum" ]] || continue
+    if list_contains "$name" "$exclude_file"; then
+      echo "Recovery-kit import: packages/$archive is excluded by current local repository policy." >&2
+      return 1
+    fi
+    local_archive="$REPO_DIR/$archive"
+    if [[ -e "$local_archive" || -L "$local_archive" ]]; then
+      [[ -f "$local_archive" && ! -L "$local_archive" ]] || { echo "Recovery-kit import: packages/$archive has an unsafe or unreadable local archive." >&2; return 1; }
+      local_checksum=$(sha256sum -- "$local_archive")
+      local_checksum=${local_checksum%% *}
+      [[ "$local_checksum" == "$checksum" ]] || { echo "Recovery-kit import: packages/$archive has the same name but a different SHA-256 locally." >&2; return 1; }
+      present=$((present + 1))
+    else
+      candidates+=("$archive"$'\t'"$checksum")
+      total=$((total + $(stat -c '%s' -- "$kit/packages/$archive")))
+    fi
+  done < <(python3 - "$kit/metadata/package-lock.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    packages = json.load(handle)["packages"]
+for package in sorted(packages, key=lambda item: item["archive"]):
+    print(f'{package["name"]}\t{package["archive"]}\t{package["sha256"]}')
+PY
+)
+
+  if ((${#candidates[@]} == 0)); then
+    printf 'Recovery-kit import: nothing to import; %s archive(s) are already byte-identical.\n' "$present"
+    return
+  fi
+  stage=$(mktemp -d "$REPO_DIR/.lumen-import.XXXXXX")
+  for name in "${candidates[@]}"; do
+    archive=${name%%$'\t'*}
+    checksum=${name#*$'\t'}
+    staged_archive="$stage/$archive"
+    if ! cp --reflink=auto --preserve=mode,timestamps -- "$kit/packages/$archive" "$staged_archive"; then rm -rf -- "$stage"; return 1; fi
+    local_checksum=$(sha256sum -- "$staged_archive") || { rm -rf -- "$stage"; return 1; }
+    local_checksum=${local_checksum%% *}
+    [[ "$local_checksum" == "$checksum" ]] || { rm -rf -- "$stage"; echo "Recovery-kit import: copied packages/$archive failed SHA-256 verification." >&2; return 1; }
+    pacman -Qp -q "$staged_archive" >/dev/null || { rm -rf -- "$stage"; echo "Recovery-kit import: copied packages/$archive has unreadable package metadata." >&2; return 1; }
+    union_archives+=("$staged_archive")
+  done
+  prospective_db="$stage/$REPO_NAME.db.tar.gz"
+  repo-add "$prospective_db" "${union_archives[@]}" >/dev/null || { rm -rf -- "$stage"; echo 'Recovery-kit import: could not generate the future local repository database.' >&2; return 1; }
+  database_entries "$prospective_db" >/dev/null || { rm -rf -- "$stage"; echo 'Recovery-kit import: generated local repository database is unreadable.' >&2; return 1; }
+  source_stage="$stage/lumen-local.conf"
+  cat > "$source_stage" <<EOF
+# Managed by Lumen. Local archives are intentionally trusted because they are
+# created from this machine's Pacman cache or explicitly added by an admin.
+[$REPO_NAME]
+SigLevel = Optional TrustAll
+Server = file://$REPO_DIR
+EOF
+  sync_database=$(local_sync_database)
+  for name in "${candidates[@]}"; do
+    archive=${name%%$'\t'*}
+    mv -- "$stage/$archive" "$REPO_DIR/$archive"
+    imported=$((imported + 1))
+  done
+  install -Dm644 "$prospective_db" "$REPO_DIR/.${REPO_NAME}.db.new"
+  mv -f -- "$REPO_DIR/.${REPO_NAME}.db.new" "$repo_db"
+  ln -f "$repo_db" "$REPO_DIR/$REPO_NAME.db"
+  install -Dm644 "$source_stage" "$pacman_fragment"
+  ensure_pacman_source_is_included
+  install -Dm644 "$REPO_DIR/$REPO_NAME.db" "$sync_database"
+  rm -rf -- "$stage"
+  printf 'Recovery-kit archives imported: %s; already present: %s; imported bytes: %s.\n' "$imported" "$present" "$total"
+  printf 'Lumen local repository updated: %s archive(s); local-first Pacman source enabled.\n' "${#union_archives[@]}"
+}
+
 case "${1:-}" in
   --from-cache|sync) sync_repository ;;
   add) [[ $# -eq 2 ]] || { usage >&2; exit 2; }; add_archive_or_package "$2" ;;
@@ -460,8 +572,14 @@ case "${1:-}" in
     sync_repository
     ;;
   import-kit)
-    [[ $# -eq 3 && "$2" == --preview ]] || { usage >&2; exit 2; }
-    preview_import_kit "$3"
+    if [[ $# -eq 3 && "$2" == --preview ]]; then
+      preview_import_kit "$3"
+    elif [[ $# -eq 3 && "$3" == --yes ]]; then
+      import_recovery_kit "$2"
+    else
+      usage >&2
+      exit 2
+    fi
     ;;
   status) status ;;
   verify) verify_repository ;;

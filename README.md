@@ -280,6 +280,8 @@ lumen project export demo --version v000001 --to /media/usb/demo-v000001 # creat
 lumen project verify-kit /media/usb/demo-v000001 # verify a copied recovery kit offline
 lumen project rehearse-kit /media/usb/demo-v000001 # bootstrap-test a verified kit offline
 lumen project restore-kit /media/usb/demo-v000001 --to /home/user/recovered-demo --yes # restore only the saved workspace snapshot
+lumen repo import-kit --preview /media/usb/demo-v000001 # inspect offline local-archive rehydration first
+lumen repo import-kit /media/usb/demo-v000001 --yes # explicitly import only missing verified archives
 lumen snapshot all create --name before-upgrade
 ```
 
@@ -341,6 +343,7 @@ lumen repo exclude linux-firmware    # do not retain this archive locally
 lumen repo unexclude linux-firmware
 lumen repo prune                     # retain two local versions per package
 lumen repo import-kit --preview /media/usb/demo-v000001 # compare a verified kit before any future local import
+lumen repo import-kit /media/usb/demo-v000001 --yes # explicitly rehydrate this machine's local archive from a verified kit
 lumen package hold linux             # exclude from normal Pacman updates
 lumen package unhold linux
 ```
