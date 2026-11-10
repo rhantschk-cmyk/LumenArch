@@ -33,6 +33,7 @@ Commands:
   unhold <package>         remove Lumen's update hold for a package
   status                   show repository, exclusion, and hold information
   verify                   audit local archive, database, source, and project-lock readiness
+  reconcile --yes          rebuild only local database/source/sync metadata from valid archives
   import-kit --preview DIR compare a verified recovery kit with this local archive
   import-kit DIR --yes     import a verified kit's missing archives locally
   list                     list archives currently offered by the repository
@@ -224,7 +225,7 @@ database_entries() {
 
 verify_repository() {
   local -a archives=()
-  local archive temporary expected_db actual_entries expected_entries failures=0
+  local archive temporary expected_db actual_entries expected_entries sync_database sync_entries failures=0
   shopt -s nullglob
   for archive in "$REPO_DIR"/*.pkg.tar.*; do
     [[ "$archive" == *.sig ]] && continue
@@ -239,13 +240,13 @@ verify_repository() {
 
   command -v pacman >/dev/null || { echo 'Local archive: Pacman metadata reader is unavailable; install Pacman tooling locally.' >&2; return 1; }
   command -v repo-add >/dev/null || { echo 'Local archive: repo-add is unavailable; install pacman-contrib locally.' >&2; return 1; }
-  [[ -r "$pacman_fragment" ]] || { echo "Pacman source: missing fragment $pacman_fragment; run \`lumen repo sync\`." >&2; failures=1; }
+  [[ -r "$pacman_fragment" ]] || { echo "Pacman source: missing fragment $pacman_fragment; run \`lumen repo reconcile --yes\`." >&2; failures=1; }
   if [[ -r "$pacman_fragment" ]] && ! grep -Fqx "[$REPO_NAME]" "$pacman_fragment"; then
-    echo "Pacman source: $pacman_fragment does not enable [$REPO_NAME]; run \`lumen repo sync\`." >&2
+    echo "Pacman source: $pacman_fragment does not enable [$REPO_NAME]; run \`lumen repo reconcile --yes\`." >&2
     failures=1
   fi
   if [[ -r "$pacman_fragment" ]] && ! grep -Fqx "Server = file://$REPO_DIR" "$pacman_fragment"; then
-    echo "Pacman source: $pacman_fragment does not point to $REPO_DIR; run \`lumen repo sync\`." >&2
+    echo "Pacman source: $pacman_fragment does not point to $REPO_DIR; run \`lumen repo reconcile --yes\`." >&2
     failures=1
   fi
   for archive in "${archives[@]}"; do
@@ -256,7 +257,7 @@ verify_repository() {
   done
 
   if [[ ! -r "$repo_db" ]]; then
-    echo "Repository database: missing $repo_db; run \`lumen repo sync\`." >&2
+    echo "Repository database: missing $repo_db; run \`lumen repo reconcile --yes\`." >&2
     failures=1
   else
     temporary=$(mktemp -d)
@@ -265,24 +266,100 @@ verify_repository() {
       echo 'Repository database: could not derive expected entries from local archives.' >&2
       failures=1
     elif ! actual_entries=$(database_entries "$repo_db"); then
-      echo "Repository database: unreadable $repo_db; run \`lumen repo sync\`." >&2
+      echo "Repository database: unreadable $repo_db; run \`lumen repo reconcile --yes\`." >&2
       failures=1
     elif ! expected_entries=$(database_entries "$expected_db"); then
       echo 'Repository database: generated expected database is unreadable.' >&2
       failures=1
     elif [[ "$actual_entries" != "$expected_entries" ]]; then
-      echo "Repository database: entries are stale or incomplete; run \`lumen repo sync\`." >&2
+      echo "Repository database: entries are stale or incomplete; run \`lumen repo reconcile --yes\`." >&2
       failures=1
     fi
     rm -rf -- "$temporary"
   fi
 
+  sync_database=$(local_sync_database)
+  if [[ ! -r "$sync_database" ]]; then
+    echo "Pacman sync database: missing $sync_database; run \`lumen repo reconcile --yes\`." >&2
+    failures=1
+  elif ! sync_entries=$(database_entries "$sync_database"); then
+    echo "Pacman sync database: unreadable $sync_database; run \`lumen repo reconcile --yes\`." >&2
+    failures=1
+  elif [[ -n "${actual_entries:-}" && "$sync_entries" != "$actual_entries" ]]; then
+    echo "Pacman sync database: entries are stale or incomplete; run \`lumen repo reconcile --yes\`." >&2
+    failures=1
+  fi
   if "$project_helper" verify-locks; then :; else failures=1; fi
   if ((failures)); then
-    echo 'Local repository readiness: failed. Repair archives or run `lumen repo sync`; no files were changed.' >&2
+    echo 'Local repository readiness: failed. Repair archives or run `lumen repo reconcile --yes`; no files were changed.' >&2
     return 1
   fi
   printf 'Local repository readiness: ready (%s archive(s), source/database and saved locks verified).\n' "${#archives[@]}"
+}
+
+pacman_source_can_be_included() {
+  grep -Fqx "Include = $pacman_fragment" "$pacman_config" || grep -q '^LocalFileSigLevel = ' "$pacman_config" || grep -q '^\[options\]$' "$pacman_config"
+}
+
+reconcile_repository() {
+  local archive package stage prospective_db source_stage sync_database sync_stage fragment_stage count=0
+  local -a archives=()
+  require_root
+  [[ -d "$REPO_DIR" && ! -L "$REPO_DIR" ]] || { echo "Local repository reconciliation: not a real directory: $REPO_DIR" >&2; return 1; }
+  command -v pacman >/dev/null || { echo 'Local repository reconciliation: Pacman metadata reader is unavailable locally.' >&2; return 1; }
+  command -v repo-add >/dev/null || { echo 'Local repository reconciliation: repo-add is unavailable; install pacman-contrib locally.' >&2; return 1; }
+  [[ -x "$project_helper" ]] || { echo 'Local repository reconciliation: Lumen project helper is unavailable locally.' >&2; return 1; }
+  "$project_helper" verify-locks || return $?
+  pacman_source_can_be_included || { echo "Local repository reconciliation: $pacman_config cannot include the Lumen local source." >&2; return 1; }
+
+  shopt -s nullglob
+  for archive in "$REPO_DIR"/*.pkg.tar.*; do
+    [[ "$archive" == *.sig ]] && continue
+    [[ -f "$archive" && ! -L "$archive" ]] || { echo "Local repository reconciliation: archive is unsafe or unreadable: $archive" >&2; return 1; }
+    package=$(package_name_from_archive "$archive") || { echo "Local repository reconciliation: archive metadata is unreadable: $archive" >&2; return 1; }
+    list_contains "$package" "$exclude_file" && { echo "Local repository reconciliation: archive is excluded by current policy: $archive" >&2; return 1; }
+    archives+=("$archive")
+  done
+  count=${#archives[@]}
+  stage=$(mktemp -d "$REPO_DIR/.lumen-reconcile.XXXXXX")
+  source_stage="$stage/lumen-local.conf"
+  sync_database=$(local_sync_database)
+
+  if ((count)); then
+    prospective_db="$stage/$REPO_NAME.db.tar.gz"
+    repo-add "$prospective_db" "${archives[@]}" >/dev/null || { rm -rf -- "$stage"; echo 'Local repository reconciliation: could not generate local repository metadata.' >&2; return 1; }
+    database_entries "$prospective_db" >/dev/null || { rm -rf -- "$stage"; echo 'Local repository reconciliation: generated local repository database is unreadable.' >&2; return 1; }
+    cat > "$source_stage" <<EOF
+# Managed by Lumen. Local archives are intentionally trusted because they are
+# created from this machine's Pacman cache or explicitly added by an admin.
+[$REPO_NAME]
+SigLevel = Optional TrustAll
+Server = file://$REPO_DIR
+EOF
+    sync_stage="$stage/$REPO_NAME.sync.db"
+    install -m 0644 "$prospective_db" "$sync_stage"
+  else
+    : > "$source_stage"
+  fi
+
+  # Every derived file is ready before this first metadata publication boundary.
+  ensure_pacman_source_is_included || { rm -rf -- "$stage"; return 1; }
+  fragment_stage="${pacman_fragment}.lumen-reconcile.$$"
+  install -Dm644 "$source_stage" "$fragment_stage"
+  mv -f -- "$fragment_stage" "$pacman_fragment"
+  if ((count)); then
+    install -m 0644 "$prospective_db" "$REPO_DIR/.${REPO_NAME}.db.new"
+    mv -f -- "$REPO_DIR/.${REPO_NAME}.db.new" "$repo_db"
+    ln -f "$repo_db" "$REPO_DIR/$REPO_NAME.db"
+    install -Dm644 "$sync_stage" "${sync_database}.lumen-reconcile.$$"
+    mv -f -- "${sync_database}.lumen-reconcile.$$" "$sync_database"
+    rm -rf -- "$stage"
+    printf 'Local repository metadata reconciled: %s archive(s); local-first Pacman source enabled.\n' "$count"
+  else
+    rm -f -- "$repo_db" "$REPO_DIR/$REPO_NAME.db" "$sync_database"
+    rm -rf -- "$stage"
+    echo 'Local repository metadata reconciled: empty archive; local-first Pacman source disabled.'
+  fi
 }
 
 preview_prune() {
@@ -580,6 +657,10 @@ case "${1:-}" in
       usage >&2
       exit 2
     fi
+    ;;
+  reconcile)
+    [[ $# -eq 2 && "$2" == --yes ]] || { usage >&2; exit 2; }
+    reconcile_repository
     ;;
   status) status ;;
   verify) verify_repository ;;

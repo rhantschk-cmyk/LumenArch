@@ -241,9 +241,10 @@ repository_menu() {
       '󰍎  Preview archive cleanup' \
       '󰍎  Preview recovery-kit archive import' \
       '󰆼  Import recovery-kit archives' \
+      '󰟳  Reconcile local repository metadata' \
       '󰆴  Prune old archive versions' \
       '󰅖  Show package holds' \
-      '󰜺  Back' | gum choose --height 15) || return
+      '󰜺  Back' | gum choose --height 16) || return
     case "$choice" in
       *status*) run lumen repo status ;;
       *Verify*) run lumen repo verify ;;
@@ -261,6 +262,14 @@ repository_menu() {
         destination=$(gum input --prompt 'Mounted absolute recovery-kit directory (verified archives only): ') || continue
         if [[ -n "$destination" ]] && lumen repo import-kit --preview "$destination"; then
           gum confirm 'Import only missing verified archives and rebuild the local offline repository? Installed packages and the kit remain unchanged.' && run lumen repo import-kit "$destination" --yes
+        fi
+        ;;
+      *Reconcile\ local\ repository*)
+        if ! lumen repo verify; then
+          gum confirm 'Rebuild only local repository database, Pacman source and sync metadata from the existing archives? Archives, installed packages and recovery kits remain unchanged.' && run lumen repo reconcile --yes
+        else
+          echo 'Local repository metadata is already ready; reconciliation is unnecessary.'
+          pause
         fi
         ;;
       *Preview*) run lumen repo prune --preview ;;

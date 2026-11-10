@@ -64,6 +64,7 @@ Package commands:
 Offline repository commands:
   repo status                    show local repository state
   repo verify                    verify offline archive, database, source, and saved project locks
+  repo reconcile --yes           rebuild only stale local repository metadata from valid archives
   repo list                      list packages available from the local repository
   repo exclusions                list packages excluded from the local repository
   repo sync                      mirror Pacman's archive cache locally
@@ -271,6 +272,7 @@ case "${1:-help}" in
     shift
     case "${1:-}" in
       status|list|exclusions|verify|-h|--help|help) exec "$repo_helper" "$@" ;;
+      reconcile) [[ $# -eq 2 && "${2:-}" == --yes ]] && exec sudo "$repo_helper" "$@" || { help >&2; exit 2; } ;;
       prune) [[ "${2:-}" == --preview && $# -eq 2 ]] && exec "$repo_helper" "$@" || exec sudo "$repo_helper" "$@" ;;
       import-kit)
         if [[ "${2:-}" == --preview && $# -eq 3 ]]; then

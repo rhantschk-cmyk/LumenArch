@@ -55,6 +55,7 @@ printf 'Offline recovery kit verified: %s\n' "$2"
 EOF
 chmod +x "$mock_bin/pacman" "$mock_bin/pacman-conf" "$mock_bin/repo-add" "$project_helper"
 PATH="$mock_bin:$PATH" repo-add "$repo_dir/lumen-local.db.tar.gz" "$repo_dir/alpha-1.0-1-x86_64.pkg.tar.zst"
+cp "$repo_dir/lumen-local.db.tar.gz" "$work_dir/pacman-db/sync/lumen-local.db"
 ln "$repo_dir/lumen-local.db.tar.gz" "$repo_dir/lumen-local.db"
 printf '[lumen-local]\nServer = file://%s\n' "$repo_dir" > "$fragment"
 printf '[options]\nInclude = %s\n' "$fragment" > "$pacman_config"

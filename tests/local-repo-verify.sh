@@ -15,7 +15,7 @@ repo_dir="$work_dir/repo"
 projects_dir="$work_dir/projects"
 config_file="$work_dir/repo.conf"
 fragment="$work_dir/lumen-local.conf"
-mkdir -p "$mock_bin" "$repo_dir" "$projects_dir"
+mkdir -p "$mock_bin" "$repo_dir" "$projects_dir" "$work_dir/pacman-db/sync"
 
 cat > "$mock_bin/pacman" <<'EOF'
 #!/usr/bin/env bash
@@ -49,7 +49,11 @@ for archive in "$@"; do
 done
 tar -czf "$output" -C "$stage" .
 EOF
-chmod +x "$mock_bin/pacman" "$mock_bin/repo-add"
+cat > "$mock_bin/pacman-conf" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "$work_dir/pacman-db"
+EOF
+chmod +x "$mock_bin/pacman" "$mock_bin/repo-add" "$mock_bin/pacman-conf"
 
 printf '%s\n' 'foo archive' > "$repo_dir/foo-1.0-1-x86_64.pkg.tar.zst"
 cat > "$config_file" <<EOF
@@ -63,6 +67,7 @@ SigLevel = Optional TrustAll
 Server = file://$repo_dir
 EOF
 PATH="$mock_bin:$PATH" repo-add "$repo_dir/lumen-local.db.tar.gz" "$repo_dir/foo-1.0-1-x86_64.pkg.tar.zst"
+cp "$repo_dir/lumen-local.db.tar.gz" "$work_dir/pacman-db/sync/lumen-local.db"
 
 verify() {
   PATH="$mock_bin:$PATH" \
@@ -103,8 +108,10 @@ printf '%s\n' 'foo archive' > "$repo_dir/foo-1.0-1-x86_64.pkg.tar.zst"
 printf '%s\n' 'bar archive' > "$repo_dir/bar-2.0-1-x86_64.pkg.tar.zst"
 expect_failure 'entries are stale or incomplete'
 PATH="$mock_bin:$PATH" repo-add "$repo_dir/lumen-local.db.tar.gz" "$repo_dir"/*.pkg.tar.zst
+cp "$repo_dir/lumen-local.db.tar.gz" "$work_dir/pacman-db/sync/lumen-local.db"
 rm "$repo_dir/bar-2.0-1-x86_64.pkg.tar.zst"
 PATH="$mock_bin:$PATH" repo-add "$repo_dir/lumen-local.db.tar.gz" "$repo_dir/foo-1.0-1-x86_64.pkg.tar.zst"
+cp "$repo_dir/lumen-local.db.tar.gz" "$work_dir/pacman-db/sync/lumen-local.db"
 
 : > "$fragment"
 PATH="$mock_bin:$PATH" \

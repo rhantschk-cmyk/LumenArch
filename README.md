@@ -282,6 +282,7 @@ lumen project rehearse-kit /media/usb/demo-v000001 # bootstrap-test a verified k
 lumen project restore-kit /media/usb/demo-v000001 --to /home/user/recovered-demo --yes # restore only the saved workspace snapshot
 lumen repo import-kit --preview /media/usb/demo-v000001 # inspect offline local-archive rehydration first
 lumen repo import-kit /media/usb/demo-v000001 --yes # explicitly import only missing verified archives
+lumen repo reconcile --yes # rebuild only stale local database/source/sync metadata from valid archives
 lumen snapshot all create --name before-upgrade
 ```
 
@@ -335,6 +336,7 @@ instead of allowing the local offline archive to grow without limit.
 ```bash
 lumen repo status
 lumen repo verify                 # audit archive/database/source and saved project locks offline
+lumen repo reconcile --yes        # repair only stale local repository metadata after a failed verification
 lumen repo exclusions
 lumen repo sync
 lumen repo add firefox               # download once, retain in the local repo
