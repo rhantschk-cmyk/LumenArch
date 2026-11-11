@@ -283,6 +283,7 @@ lumen project restore-kit /media/usb/demo-v000001 --to /home/user/recovered-demo
 lumen repo import-kit --preview /media/usb/demo-v000001 # inspect offline local-archive rehydration first
 lumen repo import-kit /media/usb/demo-v000001 --yes # explicitly import only missing verified archives
 lumen repo reconcile --yes # rebuild only stale local database/source/sync metadata from valid archives
+lumen repo verify-import /media/usb/demo-v000001 # prove the verified kit closure is retained locally before USB removal
 lumen snapshot all create --name before-upgrade
 ```
 
@@ -346,6 +347,7 @@ lumen repo unexclude linux-firmware
 lumen repo prune                     # retain two local versions per package
 lumen repo import-kit --preview /media/usb/demo-v000001 # compare a verified kit before any future local import
 lumen repo import-kit /media/usb/demo-v000001 --yes # explicitly rehydrate this machine's local archive from a verified kit
+lumen repo verify-import /media/usb/demo-v000001 # final offline proof before detaching the imported kit
 lumen package hold linux             # exclude from normal Pacman updates
 lumen package unhold linux
 ```

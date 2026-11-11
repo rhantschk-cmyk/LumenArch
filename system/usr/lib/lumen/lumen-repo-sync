@@ -33,6 +33,7 @@ Commands:
   unhold <package>         remove Lumen's update hold for a package
   status                   show repository, exclusion, and hold information
   verify                   audit local archive, database, source, and project-lock readiness
+  verify-import DIR        prove a verified recovery kit's locked closure is retained locally
   reconcile --yes          rebuild only local database/source/sync metadata from valid archives
   import-kit --preview DIR compare a verified recovery kit with this local archive
   import-kit DIR --yes     import a verified kit's missing archives locally
@@ -501,6 +502,85 @@ PY
   return "$failures"
 }
 
+verify_imported_kit() {
+  local kit="$1" name archive checksum local_archive local_checksum target_archive failures=0 target_count=0 local_count=0
+  local -a missing=() conflicts=()
+  [[ -x "$project_helper" ]] || {
+    echo 'Recovery-kit import completion verification: Lumen project helper is unavailable locally.' >&2
+    return 1
+  }
+  # Validate the removable source completely before trusting its lock or
+  # comparing any target archive. This command is intentionally read-only.
+  "$project_helper" verify-kit "$kit" || return $?
+  [[ -d "$REPO_DIR" && ! -L "$REPO_DIR" ]] || {
+    echo "Recovery-kit import completion verification: local repository is not a real directory: $REPO_DIR" >&2
+    return 1
+  }
+  command -v python3 >/dev/null || {
+    echo 'Recovery-kit import completion verification: Python 3 is unavailable for safe lock parsing.' >&2
+    return 1
+  }
+  verify_repository || return $?
+  shopt -s nullglob
+  for target_archive in "$REPO_DIR"/*.pkg.tar.*; do
+    [[ "$target_archive" == *.sig ]] && continue
+    local_count=$((local_count + 1))
+  done
+
+  while IFS=$'\t' read -r name archive checksum; do
+    [[ -n "$name" && -n "$archive" && -n "$checksum" ]] || continue
+    local_archive="$REPO_DIR/$archive"
+    if [[ ! -e "$local_archive" && ! -L "$local_archive" ]]; then
+      missing+=("packages/$archive")
+      continue
+    fi
+    if [[ ! -f "$local_archive" || -L "$local_archive" ]]; then
+      conflicts+=("packages/$archive (local archive is unsafe or unreadable)")
+      continue
+    fi
+    if ! local_checksum=$(sha256sum -- "$local_archive" 2>/dev/null); then
+      conflicts+=("packages/$archive (cannot hash local archive)")
+      continue
+    fi
+    local_checksum=${local_checksum%% *}
+    if [[ "$local_checksum" != "$checksum" ]]; then
+      conflicts+=("packages/$archive (same name has a different SHA-256 locally)")
+      continue
+    fi
+    target_count=$((target_count + 1))
+  done < <(python3 - "$kit/metadata/package-lock.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    packages = json.load(handle)["packages"]
+for package in sorted(packages, key=lambda item: item["archive"]):
+    print(f'{package["name"]}\t{package["archive"]}\t{package["sha256"]}')
+PY
+)
+
+  echo 'Recovery-kit import completion verification (read-only; no archives or metadata are changed).'
+  if ((${#missing[@]})); then
+    echo 'Missing from local archive:' >&2
+    printf '%s\n' "${missing[@]}" | LC_ALL=C sort | sed 's#^#- #' >&2
+    failures=1
+  else
+    echo 'Missing from local archive: none'
+  fi
+  if ((${#conflicts[@]})); then
+    echo 'Checksum or safety conflicts:' >&2
+    printf '%s\n' "${conflicts[@]}" | LC_ALL=C sort | sed 's#^#- #' >&2
+    failures=1
+  else
+    echo 'Checksum or safety conflicts: none'
+  fi
+  if ((failures)); then
+    echo 'Recovery-kit import completion: failed; no files were changed.' >&2
+    return 1
+  fi
+  printf 'Recovery-kit import completion: ready; %s kit archive(s) are retained locally; target-only archives: %s.\n' "$target_count" "$((local_count - target_count))"
+}
+
 target_repository_ready_for_import() {
   local archive count=0
   [[ -d "$REPO_DIR" && ! -L "$REPO_DIR" ]] || {
@@ -657,6 +737,10 @@ case "${1:-}" in
       usage >&2
       exit 2
     fi
+    ;;
+  verify-import)
+    [[ $# -eq 2 ]] || { usage >&2; exit 2; }
+    verify_imported_kit "$2"
     ;;
   reconcile)
     [[ $# -eq 2 && "$2" == --yes ]] || { usage >&2; exit 2; }
