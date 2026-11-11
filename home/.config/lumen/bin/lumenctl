@@ -465,6 +465,49 @@ apps_menu() {
   done
 }
 
+media_pipeline_menu() {
+  title
+  if ! command -v lumen-media >/dev/null; then
+    echo 'Lumen Media Pipeline is not installed. Install the optional lumen-media CLI to enable this workflow.'
+    pause
+    return
+  fi
+  local choice project action target token
+  choice=$(printf '%s\n' \
+    '󰝚  Initialize media project' \
+    '󰋚  Show media project status' \
+    '󰋚  Run configured project action' \
+    '󰕒  Sync exports with Lumen LAN Drop' \
+    '󰜺  Back' | gum choose --height 10) || return
+  case "$choice" in
+    *Initialize*)
+      project=$(gum input --prompt 'Media project directory: ' --placeholder "$HOME/Media/my-project") || return
+      [[ -n "$project" ]] && run lumen-media init "$project"
+      ;;
+    *status*)
+      project=$(gum input --prompt 'Media project directory: ') || return
+      [[ -n "$project" ]] && run lumen-media status "$project"
+      ;;
+    *configured*)
+      project=$(gum input --prompt 'Media project directory: ') || return
+      action=$(gum input --prompt 'Configured action name: ') || return
+      [[ -n "$project" && -n "$action" ]] && run lumen-media action run "$action" "$project"
+      ;;
+    *Sync*)
+      if ! command -v lumen-landrop >/dev/null; then
+        echo 'Lumen LAN Drop is not installed; export sync remains optional.'
+        pause
+        return
+      fi
+      project=$(gum input --prompt 'Media project directory: ') || return
+      target=$(gum input --prompt 'LAN Drop receiver URL: ' --placeholder 'http://device:8765') || return
+      token=$(gum input --password --prompt 'One-time receiver token: ') || return
+      [[ -n "$project" && -n "$target" && -n "$token" ]] && run lumen-media sync-exports "$project" --to "$target" --token "$token"
+      ;;
+    *) return ;;
+  esac
+}
+
 main() {
   while true; do
     title
@@ -475,6 +518,7 @@ main() {
       '󰖨  Appearance and default apps' \
       '󰏘  Theme Studio' \
       '󰏖  Apps and packages' \
+      '󰝚  Media projects and LAN Drop' \
       '󰔟  Focus sessions' \
       '󰈙  Projects and snapshots' \
       '󰏗  Local offline repository' \
@@ -488,6 +532,7 @@ main() {
       *Appearance*) appearance_menu ;;
       *Theme\ Studio*) theme_menu ;;
       *Apps*) apps_menu ;;
+      *Media*) media_pipeline_menu ;;
       *Focus*) focus_menu ;;
       *Projects*) project_menu ;;
       *repository*) repository_menu ;;
