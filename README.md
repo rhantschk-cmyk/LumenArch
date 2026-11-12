@@ -284,6 +284,7 @@ lumen repo import-kit --preview /media/usb/demo-v000001 # inspect offline local-
 lumen repo import-kit /media/usb/demo-v000001 --yes # explicitly import only missing verified archives
 lumen repo reconcile --yes # rebuild only stale local database/source/sync metadata from valid archives
 lumen repo verify-import /media/usb/demo-v000001 # prove the verified kit closure is retained locally before USB removal
+lumen repo retain-kit /media/usb/demo-v000001 --yes # retain that verified closure through normal archive pruning
 lumen snapshot all create --name before-upgrade
 ```
 
@@ -348,6 +349,7 @@ lumen repo prune                     # retain two local versions per package
 lumen repo import-kit --preview /media/usb/demo-v000001 # compare a verified kit before any future local import
 lumen repo import-kit /media/usb/demo-v000001 --yes # explicitly rehydrate this machine's local archive from a verified kit
 lumen repo verify-import /media/usb/demo-v000001 # final offline proof before detaching the imported kit
+lumen repo retain-kit /media/usb/demo-v000001 --yes # explicitly retain its verified imported closure after USB removal
 lumen package hold linux             # exclude from normal Pacman updates
 lumen package unhold linux
 ```
@@ -355,6 +357,13 @@ lumen package unhold linux
 `repo exclude` controls only whether an archive is kept in Lumen's local
 offline mirror. `package hold` writes an explicit Pacman `IgnorePkg` entry and
 controls updates. The two operations are intentionally separate.
+
+After importing a recovery kit, `lumen repo verify-import` proves its exact
+closure is present locally. If that closure must survive ordinary two-version
+archive pruning after the USB is detached, explicitly adopt it with `lumen repo
+retain-kit DIR --yes`. This creates a root-owned local retention lock only; it
+does not copy packages, change Pacman metadata, restore a workspace, or access
+the network. Retention-lock removal is intentionally a separate future action.
 
 `lumen repo unexclude <package>` permits the package to be mirrored again, but
 does not recreate an archive that was removed by `exclude`. Run `lumen repo add

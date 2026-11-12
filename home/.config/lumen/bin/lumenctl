@@ -242,6 +242,7 @@ repository_menu() {
       '󰍎  Preview recovery-kit archive import' \
       '󰆼  Import recovery-kit archives' \
       '󰍎  Verify imported recovery-kit closure' \
+      '󰀳  Retain imported recovery-kit closure' \
       '󰟳  Reconcile local repository metadata' \
       '󰆴  Prune old archive versions' \
       '󰅖  Show package holds' \
@@ -268,6 +269,12 @@ repository_menu() {
       *Verify\ imported\ recovery-kit*)
         destination=$(gum input --prompt 'Still-mounted absolute recovery-kit directory (read-only completion check): ') || continue
         [[ -n "$destination" ]] && run lumen repo verify-import "$destination"
+        ;;
+      *Retain\ imported\ recovery-kit*)
+        destination=$(gum input --prompt 'Still-mounted absolute recovery-kit directory (future pruning will retain its exact closure): ') || continue
+        if [[ -n "$destination" ]] && lumen repo verify-import "$destination"; then
+          gum confirm 'Retain this verified imported package closure locally through future archive pruning? The kit and package data remain unchanged.' && run lumen repo retain-kit "$destination" --yes
+        fi
         ;;
       *Reconcile\ local\ repository*)
         if ! lumen repo verify; then

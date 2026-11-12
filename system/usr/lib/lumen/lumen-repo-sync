@@ -19,6 +19,7 @@ else
   REPO_NAME=lumen-local
 fi
 repo_db="$REPO_DIR/$REPO_NAME.db.tar.gz"
+retained_kits_dir=${LUMEN_REPO_RETAINED_KITS_DIR:-$REPO_DIR/.lumen-retained-kits}
 
 usage() {
   cat <<'EOF'
@@ -34,6 +35,7 @@ Commands:
   status                   show repository, exclusion, and hold information
   verify                   audit local archive, database, source, and project-lock readiness
   verify-import DIR        prove a verified recovery kit's locked closure is retained locally
+  retain-kit DIR --yes     retain a verified imported recovery-kit closure through future pruning
   reconcile --yes          rebuild only local database/source/sync metadata from valid archives
   import-kit --preview DIR compare a verified recovery kit with this local archive
   import-kit DIR --yes     import a verified kit's missing archives locally
@@ -363,9 +365,160 @@ EOF
   fi
 }
 
+adopted_retention_records() {
+  # Emit package name, exact archive filename, checksum and lock-relative path.
+  # A retained kit is state, not a hint: malformed records or changed payloads
+  # stop pruning rather than allowing an offline closure to disappear.
+  local record name archive checksum lock_path local_archive local_checksum
+  [[ -e "$retained_kits_dir" || -L "$retained_kits_dir" ]] || return 0
+  [[ -d "$retained_kits_dir" && ! -L "$retained_kits_dir" ]] || {
+    echo "Retained recovery-kit state is not a real directory: $retained_kits_dir" >&2
+    return 1
+  }
+  while IFS=$'\t' read -r name archive checksum lock_path; do
+    [[ -n "$name" && -n "$archive" && -n "$checksum" && -n "$lock_path" ]] || continue
+    local_archive="$REPO_DIR/$archive"
+    [[ -f "$local_archive" && ! -L "$local_archive" ]] || {
+      echo "Retained recovery-kit lock $lock_path requires an unsafe or missing archive: $archive" >&2
+      return 1
+    }
+    local_checksum=$(sha256sum -- "$local_archive") || {
+      echo "Retained recovery-kit lock $lock_path cannot hash archive: $archive" >&2
+      return 1
+    }
+    [[ "${local_checksum%% *}" == "$checksum" ]] || {
+      echo "Retained recovery-kit lock $lock_path no longer matches archive: $archive" >&2
+      return 1
+    }
+    printf '%s\t%s\t%s\t%s\n' "$name" "$archive" "$checksum" "$lock_path"
+  done < <(python3 - "$retained_kits_dir" <<'PY'
+import json
+import os
+import re
+import stat
+import sys
+from pathlib import Path
+
+directory = Path(sys.argv[1])
+mode = stat.S_IMODE(directory.stat().st_mode)
+if directory.stat().st_uid != os.geteuid() or mode & 0o077:
+    raise SystemExit("Retained recovery-kit state must be root-owned and mode 0700.")
+for path in sorted(directory.iterdir(), key=lambda item: item.name):
+    if path.is_symlink() or not path.is_file() or not re.fullmatch(r"[0-9a-f]{64}\.json", path.name):
+        raise SystemExit(f"Retained recovery-kit state contains an unsafe entry: {path.name}")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"Retained recovery-kit lock is unreadable: {path.name}: {exc}")
+    required = {"schema", "kit_manifest_sha256", "project", "version", "packages"}
+    if set(data) != required or data.get("schema") != 1 or not isinstance(data["project"], str) or not data["project"] or not isinstance(data["version"], str) or not re.fullmatch(r"v[0-9]{6}", data["version"]) or not isinstance(data["kit_manifest_sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", data["kit_manifest_sha256"]):
+        raise SystemExit(f"Retained recovery-kit lock is malformed: {path.name}")
+    packages = data["packages"]
+    if not isinstance(packages, list) or not packages:
+        raise SystemExit(f"Retained recovery-kit lock has no packages: {path.name}")
+    previous = ""
+    for package in packages:
+        if not isinstance(package, dict) or set(package) != {"name", "archive", "sha256"}:
+            raise SystemExit(f"Retained recovery-kit lock is malformed: {path.name}")
+        name, archive, checksum = package["name"], package["archive"], package["sha256"]
+        if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9@._+:-]+", name) or not isinstance(archive, str) or not re.fullmatch(r"[A-Za-z0-9@._+:-]+\.pkg\.tar(?:\.[A-Za-z0-9]+)+", archive) or not isinstance(checksum, str) or not re.fullmatch(r"[0-9a-f]{64}", checksum) or archive <= previous:
+            raise SystemExit(f"Retained recovery-kit lock is malformed: {path.name}")
+        previous = archive
+        print(f"{name}\t{archive}\t{checksum}\tretained-kits/{path.name}")
+PY
+)
+}
+
+retained_protected_packages() {
+  adopted_retention_records | cut -f1 | LC_ALL=C sort -u
+}
+
+retain_recovery_kit() {
+  local kit="$1" stage candidate lock_file result name archive checksum local_archive local_checksum
+  local -a records=()
+  require_root
+  [[ -x "$project_helper" ]] || { echo 'Recovery-kit retention: Lumen project helper is unavailable locally.' >&2; return 1; }
+  # Keep the user-visible ordering explicit: source validation, target closure
+  # validation, then one last source validation before state publication.
+  "$project_helper" verify-kit "$kit" || return $?
+  verify_imported_kit "$kit" || return $?
+  "$project_helper" verify-kit "$kit" || return $?
+  [[ -d "$REPO_DIR" && ! -L "$REPO_DIR" ]] || { echo "Recovery-kit retention: local repository is not a real directory: $REPO_DIR" >&2; return 1; }
+  if [[ -e "$retained_kits_dir" || -L "$retained_kits_dir" ]]; then
+    [[ -d "$retained_kits_dir" && ! -L "$retained_kits_dir" ]] || { echo "Recovery-kit retention: retained state is not a real directory: $retained_kits_dir" >&2; return 1; }
+    [[ "$(stat -c '%u:%a' -- "$retained_kits_dir")" == "0:700" ]] || { echo "Recovery-kit retention: retained state must be root-owned and mode 0700: $retained_kits_dir" >&2; return 1; }
+    adopted_retention_records >/dev/null || return $?
+  else
+    install -d -m 0700 "$retained_kits_dir"
+  fi
+  stage=$(mktemp -d "$retained_kits_dir/.lumen-retain.XXXXXX")
+  trap 'rm -rf -- "$stage"' RETURN
+  result=$(python3 - "$kit" "$stage/candidate.json" <<'PY'
+import hashlib
+import json
+import re
+import sys
+from pathlib import Path
+
+kit, output = map(Path, sys.argv[1:])
+lock = json.loads((kit / "metadata/package-lock.json").read_text(encoding="utf-8"))
+packages = lock.get("packages")
+if not isinstance(packages, list) or not packages:
+    raise SystemExit("Recovery-kit retention: verified kit lock is unexpectedly empty.")
+recovery = (kit / "RECOVERY.md").read_text(encoding="utf-8")
+project = re.search(r"^Project: (.+)$", recovery, re.M)
+version = re.search(r"^Version: (v[0-9]{6})$", recovery, re.M)
+if not project or not version:
+    raise SystemExit("Recovery-kit retention: verified kit identity is incomplete.")
+entries = []
+for item in packages:
+    if not isinstance(item, dict):
+        raise SystemExit("Recovery-kit retention: verified kit lock is malformed.")
+    name, archive, checksum = item.get("name"), item.get("archive"), item.get("sha256")
+    if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9@._+:-]+", name) or not isinstance(archive, str) or not re.fullmatch(r"[A-Za-z0-9@._+:-]+\.pkg\.tar(?:\.[A-Za-z0-9]+)+", archive) or not isinstance(checksum, str) or not re.fullmatch(r"[0-9a-f]{64}", checksum):
+        raise SystemExit("Recovery-kit retention: verified kit lock is malformed.")
+    entries.append({"name": name, "archive": archive, "sha256": checksum})
+entries.sort(key=lambda item: item["archive"])
+if len({item["archive"] for item in entries}) != len(entries):
+    raise SystemExit("Recovery-kit retention: verified kit lock repeats an archive.")
+manifest = hashlib.file_digest((kit / "SHA256SUMS").open("rb"), "sha256").hexdigest()
+data = {"schema": 1, "kit_manifest_sha256": manifest, "project": project.group(1), "version": version.group(1), "packages": entries}
+output.write_text(json.dumps(data, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+print(manifest)
+print(project.group(1))
+print(version.group(1))
+print(len(entries))
+PY
+) || return $?
+  lock_file="${result%%$'\n'*}.json"
+  while IFS=$'\t' read -r name archive checksum; do
+    local_archive="$REPO_DIR/$archive"
+    [[ -f "$local_archive" && ! -L "$local_archive" ]] || { echo "Recovery-kit retention: local archive disappeared or is unsafe: $archive" >&2; return 1; }
+    local_checksum=$(sha256sum -- "$local_archive") || return 1
+    [[ "${local_checksum%% *}" == "$checksum" ]] || { echo "Recovery-kit retention: local archive changed after verification: $archive" >&2; return 1; }
+  done < <(python3 - "$stage/candidate.json" <<'PY'
+import json, sys
+for item in json.load(open(sys.argv[1], encoding="utf-8"))["packages"]:
+    print(f'{item["name"]}\t{item["archive"]}\t{item["sha256"]}')
+PY
+)
+  candidate="$retained_kits_dir/$lock_file"
+  if [[ -e "$candidate" || -L "$candidate" ]]; then
+    [[ -f "$candidate" && ! -L "$candidate" ]] || { echo "Recovery-kit retention: lock path is unsafe: $candidate" >&2; return 1; }
+    cmp -s -- "$stage/candidate.json" "$candidate" || { echo "Recovery-kit retention: kit identity collides with different retention content: $candidate" >&2; return 1; }
+    printf 'Recovery-kit retention: already retained; lock: %s.\n' "$candidate"
+    return
+  fi
+  install -m 0600 "$stage/candidate.json" "$stage/$lock_file"
+  mv -n -- "$stage/$lock_file" "$candidate" || true
+  [[ -f "$candidate" ]] || { echo 'Recovery-kit retention: atomic lock publication failed.' >&2; return 1; }
+  cmp -s -- "$stage/candidate.json" "$candidate" || { echo "Recovery-kit retention: kit identity collides with different retention content: $candidate" >&2; return 1; }
+  printf 'Recovery-kit retention: adopted %s archive(s) for %s %s; lock: %s.\n' "$(printf '%s\n' "$result" | sed -n '4p')" "$(printf '%s\n' "$result" | sed -n '2p')" "$(printf '%s\n' "$result" | sed -n '3p')" "$candidate"
+}
+
 preview_prune() {
   local protected_csv output line total=0 lock_archive lock_path
-  local -a protected=() candidates=() associations=() repo_archives=()
+  local -a protected=() candidates=() associations=() repo_archives=() retained_records=()
   shopt -s nullglob
   for line in "$REPO_DIR"/*.pkg.tar.*; do
     [[ "$line" == *.sig ]] || repo_archives+=("$line")
@@ -383,6 +536,16 @@ preview_prune() {
   fi
   command -v paccache >/dev/null || { echo 'Archive cleanup preview: paccache is unavailable; install pacman-contrib locally.' >&2; return 1; }
   mapfile -t protected < <("$project_helper" protected-packages)
+  adopted_retention_records >/dev/null || return $?
+  mapfile -t retained_records < <(adopted_retention_records)
+  if ((${#retained_records[@]})); then
+    local retained_name
+    while IFS=$'\t' read -r retained_name lock_archive _ lock_path; do
+      protected+=("$retained_name")
+      associations+=("$lock_archive"$'\t'"$lock_path")
+    done < <(printf '%s\n' "${retained_records[@]}")
+  fi
+  mapfile -t protected < <(printf '%s\n' "${protected[@]}" | LC_ALL=C sort -u)
   if ((${#protected[@]})); then
     protected_csv=$(IFS=,; printf '%s' "${protected[*]}")
     output=$(paccache -dk2v --nocolor -c "$REPO_DIR" --ignore "$protected_csv") || {
@@ -401,7 +564,9 @@ preview_prune() {
     candidates+=("$line")
     total=$((total + $(stat -c '%s' -- "$line")))
   done <<< "$output"
-  mapfile -t associations < <("$project_helper" protected-archive-locks)
+  local -a project_associations=()
+  mapfile -t project_associations < <("$project_helper" protected-archive-locks)
+  associations+=("${project_associations[@]}")
 
   echo 'Archive cleanup preview (read-only; normal prune retains two versions per package).'
   if ((${#candidates[@]})); then
@@ -412,14 +577,14 @@ preview_prune() {
   fi
   printf 'Reclaimable bytes: %s\n' "$total"
   if ((${#associations[@]})); then
-    echo 'Saved snapshot-protected archives:'
+    echo 'Saved snapshot- and retained-kit-protected archives:'
     for line in "${associations[@]}"; do
       lock_archive=${line%%$'\t'*}
       lock_path=${line#*$'\t'}
       printf -- '- %s required by %s\n' "$lock_archive" "$lock_path"
     done
   else
-    echo 'Saved snapshot-protected archives: none'
+    echo 'Saved snapshot- and retained-kit-protected archives: none'
   fi
 }
 
@@ -720,6 +885,10 @@ case "${1:-}" in
     [[ $# -eq 1 ]] || { usage >&2; exit 2; }
     require_root
     mapfile -t protected < <([[ -x "$project_helper" ]] && "$project_helper" protected-packages || true)
+    retained_protected_packages >/dev/null || exit $?
+    mapfile -t retained < <(retained_protected_packages)
+    protected+=("${retained[@]}")
+    mapfile -t protected < <(printf '%s\n' "${protected[@]}" | LC_ALL=C sort -u)
     if ((${#protected[@]})); then
       protected_csv=$(IFS=,; printf '%s' "${protected[*]}")
       paccache -rk2 -c "$REPO_DIR" --ignore "$protected_csv"
@@ -741,6 +910,10 @@ case "${1:-}" in
   verify-import)
     [[ $# -eq 2 ]] || { usage >&2; exit 2; }
     verify_imported_kit "$2"
+    ;;
+  retain-kit)
+    [[ $# -eq 3 && "$3" == --yes ]] || { usage >&2; exit 2; }
+    retain_recovery_kit "$2"
     ;;
   reconcile)
     [[ $# -eq 2 && "$2" == --yes ]] || { usage >&2; exit 2; }
