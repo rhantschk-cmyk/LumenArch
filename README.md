@@ -285,6 +285,7 @@ lumen repo import-kit /media/usb/demo-v000001 --yes # explicitly import only mis
 lumen repo reconcile --yes # rebuild only stale local database/source/sync metadata from valid archives
 lumen repo verify-import /media/usb/demo-v000001 # prove the verified kit closure is retained locally before USB removal
 lumen repo retain-kit /media/usb/demo-v000001 --yes # retain that verified closure through normal archive pruning
+lumen repo retained-kits # inspect retained recovery-kit closures and their protected local capacity
 lumen snapshot all create --name before-upgrade
 ```
 
@@ -350,6 +351,7 @@ lumen repo import-kit --preview /media/usb/demo-v000001 # compare a verified kit
 lumen repo import-kit /media/usb/demo-v000001 --yes # explicitly rehydrate this machine's local archive from a verified kit
 lumen repo verify-import /media/usb/demo-v000001 # final offline proof before detaching the imported kit
 lumen repo retain-kit /media/usb/demo-v000001 --yes # explicitly retain its verified imported closure after USB removal
+lumen repo retained-kits # audit retained recovery-kit closures before any future removal decision
 lumen package hold linux             # exclude from normal Pacman updates
 lumen package unhold linux
 ```
@@ -364,6 +366,9 @@ archive pruning after the USB is detached, explicitly adopt it with `lumen repo
 retain-kit DIR --yes`. This creates a root-owned local retention lock only; it
 does not copy packages, change Pacman metadata, restore a workspace, or access
 the network. Retention-lock removal is intentionally a separate future action.
+Use `lumen repo retained-kits` to inspect each adopted closure and the distinct
+local archive capacity currently protected from normal pruning; it is read-only
+and fails closed if retained state or a referenced archive is no longer valid.
 
 `lumen repo unexclude <package>` permits the package to be mirrored again, but
 does not recreate an archive that was removed by `exclude`. Run `lumen repo add

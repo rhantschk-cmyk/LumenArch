@@ -243,6 +243,7 @@ repository_menu() {
       '󰆼  Import recovery-kit archives' \
       '󰍎  Verify imported recovery-kit closure' \
       '󰀳  Retain imported recovery-kit closure' \
+      '󰋚  Show retained recovery-kit closures' \
       '󰟳  Reconcile local repository metadata' \
       '󰆴  Prune old archive versions' \
       '󰅖  Show package holds' \
@@ -276,6 +277,7 @@ repository_menu() {
           gum confirm 'Retain this verified imported package closure locally through future archive pruning? The kit and package data remain unchanged.' && run lumen repo retain-kit "$destination" --yes
         fi
         ;;
+      *Show\ retained\ recovery-kit*) run lumen repo retained-kits ;;
       *Reconcile\ local\ repository*)
         if ! lumen repo verify; then
           gum confirm 'Rebuild only local repository database, Pacman source and sync metadata from the existing archives? Archives, installed packages and recovery kits remain unchanged.' && run lumen repo reconcile --yes

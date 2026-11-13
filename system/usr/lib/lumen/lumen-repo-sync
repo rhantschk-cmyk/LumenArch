@@ -36,7 +36,8 @@ Commands:
   verify                   audit local archive, database, source, and project-lock readiness
   verify-import DIR        prove a verified recovery kit's locked closure is retained locally
   retain-kit DIR --yes     retain a verified imported recovery-kit closure through future pruning
-  reconcile --yes          rebuild only local database/source/sync metadata from valid archives
+  retained-kits            inspect retained recovery-kit closures and protected local capacity
+  reconcile --yes          rebuild only stale local database/source/sync metadata from valid archives
   import-kit --preview DIR compare a verified recovery kit with this local archive
   import-kit DIR --yes     import a verified kit's missing archives locally
   list                     list archives currently offered by the repository
@@ -431,6 +432,66 @@ PY
 
 retained_protected_packages() {
   adopted_retention_records | cut -f1 | LC_ALL=C sort -u
+}
+
+list_retained_kits() {
+  # This is deliberately an audit, not a repair path.  Validate the complete
+  # retained state through the same parser used by prune before presenting any
+  # capacity numbers, then derive only display identities from canonical JSON.
+  local records rows lock_path project version archive size
+  local -a identity_lines=() sorted_locks=()
+  local -A lock_archives=() lock_bytes=() lock_project=() lock_version=() seen_archives=()
+  [[ -e "$retained_kits_dir" || -L "$retained_kits_dir" ]] || {
+    echo 'Retained recovery-kit closures: 0 lock(s), 0 distinct archive(s), 0 protected byte(s).'
+    return 0
+  }
+  records=$(adopted_retention_records) || return $?
+
+  rows=$(python3 - "$retained_kits_dir" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+directory = Path(sys.argv[1])
+for path in sorted(directory.iterdir(), key=lambda item: item.name):
+    data = json.loads(path.read_text(encoding="utf-8"))
+    project = data["project"]
+    version = data["version"]
+    if not isinstance(project, str) or not project or not all(32 <= ord(char) <= 126 for char in project):
+        raise SystemExit(f"Retained recovery-kit lock has an unsafe project identity: {path.name}")
+    if not isinstance(version, str) or not re.fullmatch(r"v[0-9]{6}", version):
+        raise SystemExit(f"Retained recovery-kit lock is malformed: {path.name}")
+    for package in data["packages"]:
+        print(f"retained-kits/{path.name}\t{project}\t{version}\t{package['archive']}")
+PY
+) || return $?
+  [[ -n "$rows" ]] && mapfile -t identity_lines <<< "$rows"
+  for rows in "${identity_lines[@]}"; do
+    IFS=$'\t' read -r lock_path project version archive <<< "$rows"
+    [[ -n "$lock_path" && -n "$project" && -n "$version" && -n "$archive" ]] || {
+      echo 'Retained recovery-kit inventory encountered malformed canonical state.' >&2
+      return 1
+    }
+    size=$(stat -c '%s' -- "$REPO_DIR/$archive") || return $?
+    lock_archives["$lock_path"]=$(( ${lock_archives["$lock_path"]:-0} + 1 ))
+    lock_bytes["$lock_path"]=$(( ${lock_bytes["$lock_path"]:-0} + size ))
+    lock_project["$lock_path"]=$project
+    lock_version["$lock_path"]=$version
+    seen_archives["$archive"]=1
+  done
+  echo 'Retained recovery-kit closures (read-only):'
+  mapfile -t sorted_locks < <(printf '%s\n' "${!lock_archives[@]}" | LC_ALL=C sort)
+  for lock_path in "${sorted_locks[@]}"; do
+    printf -- '- %s: %s %s; %s archive(s); %s protected byte(s)\n' \
+      "$lock_path" "${lock_project["$lock_path"]}" "${lock_version["$lock_path"]}" "${lock_archives["$lock_path"]}" "${lock_bytes["$lock_path"]}"
+  done
+  local total_bytes=0
+  for archive in "${!seen_archives[@]}"; do
+    total_bytes=$((total_bytes + $(stat -c '%s' -- "$REPO_DIR/$archive")))
+  done
+  printf 'Totals: %s lock(s), %s distinct archive(s), %s protected byte(s).\n' \
+    "${#lock_archives[@]}" "${#seen_archives[@]}" "$total_bytes"
 }
 
 retain_recovery_kit() {
@@ -914,6 +975,10 @@ case "${1:-}" in
   retain-kit)
     [[ $# -eq 3 && "$3" == --yes ]] || { usage >&2; exit 2; }
     retain_recovery_kit "$2"
+    ;;
+  retained-kits)
+    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
+    list_retained_kits
     ;;
   reconcile)
     [[ $# -eq 2 && "$2" == --yes ]] || { usage >&2; exit 2; }

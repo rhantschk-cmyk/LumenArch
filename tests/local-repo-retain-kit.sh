@@ -78,6 +78,8 @@ run() {
 
 if run retain-kit "$kit" >"$work_dir/no-yes.log" 2>&1; then fail 'retain-kit accepted missing confirmation'; fi
 [[ ! -e "$state" ]] || fail 'missing confirmation created retention state'
+empty_inventory=$(run retained-kits)
+[[ "$empty_inventory" == 'Retained recovery-kit closures: 0 lock(s), 0 distinct archive(s), 0 protected byte(s).' ]] || fail 'empty retained-kit inventory is wrong'
 : > "$events"
 before_repo=$(digest "$repo_dir"); before_kit=$(digest "$kit"); before_meta=$(sha256sum "$fragment" "$pacman_config" "$work_dir/pacman-db/sync/lumen-local.db")
 output=$(run retain-kit "$kit" --yes)
@@ -89,6 +91,19 @@ lock=$(printf '%s\n' "$output" | sed -n 's/.*lock: \(.*\)\.$/\1/p')
 [[ "$(digest "$kit")" == "$before_kit" ]] || fail 'retention changed recovery kit'
 [[ "$(sha256sum "$fragment" "$pacman_config" "$work_dir/pacman-db/sync/lumen-local.db")" == "$before_meta" ]] || fail 'retention changed local metadata'
 [[ "$(tr '\n' ' ' < "$events")" == 'verify-kit verify-kit verify-locks verify-kit ' ]] || fail 'retention did not verify kit then target closure before publication'
+
+inventory=$(run retained-kits)
+grep -Fq "retained-kits/$(basename "$lock"): Demo v000001; 1 archive(s); 14 protected byte(s)" <<<"$inventory" || fail 'retained-kit inventory row is wrong'
+grep -Fq 'Totals: 1 lock(s), 1 distinct archive(s), 14 protected byte(s).' <<<"$inventory" || fail 'retained-kit inventory totals are wrong'
+[[ "$(digest "$repo_dir")" == "$before_repo" ]] || fail 'retained-kit inventory changed local archive or database'
+[[ "$(digest "$kit")" == "$before_kit" ]] || fail 'retained-kit inventory changed recovery kit'
+
+shared_lock="$state/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json"
+printf '{"schema":1,"kit_manifest_sha256":"%064d","project":"Other","version":"v000002","packages":[{"name":"alpha","archive":"alpha-1.0-1-x86_64.pkg.tar.zst","sha256":"%s"}]}' 0 "$checksum" > "$shared_lock"
+chmod 600 "$shared_lock"
+inventory=$(run retained-kits)
+grep -Fq "retained-kits/$(basename "$shared_lock"): Other v000002; 1 archive(s); 14 protected byte(s)" <<<"$inventory" || fail 'shared retained-kit inventory row is wrong'
+grep -Fq 'Totals: 2 lock(s), 1 distinct archive(s), 14 protected byte(s).' <<<"$inventory" || fail 'retained-kit inventory double-counted a shared archive'
 
 output=$(run retain-kit "$kit" --yes)
 grep -Fq 'already retained' <<<"$output" || fail 'byte-identical retention was not idempotent'

@@ -66,6 +66,7 @@ Offline repository commands:
   repo verify                    verify offline archive, database, source, and saved project locks
   repo verify-import DIR         prove a verified recovery kit's locked closure is retained locally
   repo retain-kit DIR --yes      retain that verified imported closure through later pruning
+  repo retained-kits             inspect retained recovery-kit closures and their protected capacity
   repo reconcile --yes           rebuild only stale local repository metadata from valid archives
   repo list                      list packages available from the local repository
   repo exclusions                list packages excluded from the local repository
@@ -273,7 +274,7 @@ case "${1:-help}" in
   repo)
     shift
     case "${1:-}" in
-      status|list|exclusions|verify|verify-import|-h|--help|help) exec "$repo_helper" "$@" ;;
+      status|list|exclusions|verify|verify-import|retained-kits|-h|--help|help) exec "$repo_helper" "$@" ;;
       reconcile) [[ $# -eq 2 && "${2:-}" == --yes ]] && exec sudo "$repo_helper" "$@" || { help >&2; exit 2; } ;;
       retain-kit) [[ $# -eq 3 && "${3:-}" == --yes ]] && exec sudo "$repo_helper" "$@" || { help >&2; exit 2; } ;;
       prune) [[ "${2:-}" == --preview && $# -eq 2 ]] && exec "$repo_helper" "$@" || exec sudo "$repo_helper" "$@" ;;
